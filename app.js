@@ -295,10 +295,8 @@ function loadDB() {
 
 function saveDB() { localStorage.setItem(DB_KEY, JSON.stringify(db)); }
 
-function currentUser() {
+ffunction currentUser() {
   if (!session) return null;
-  // Return a user object built from the session itself, since Supabase is
-  // now the source of truth — db.users is only used for caching in some spots.
   return {
     id: session.userId,
     name: session.name,
