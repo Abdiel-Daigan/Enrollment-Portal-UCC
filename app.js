@@ -2433,6 +2433,12 @@ function renderAll() {
     pageWrap.innerHTML = html;
   });
   break;
+        case 'browse':
+  pageWrap.innerHTML = '<div class="progress-card"><h3>Loading courses…</h3></div>';
+  renderBrowseCourses().then((html) => {
+    pageWrap.innerHTML = html;
+  });
+  break;
     case 'dashboard':
       pageWrap.innerHTML = renderStudentDashboard();
       break;
