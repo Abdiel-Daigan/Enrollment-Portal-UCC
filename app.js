@@ -5,6 +5,29 @@
    ========================================================================= */
 
 /* ============================ UTILS ============================ */
+const SUPABASE_URL = 'https://xxxxx.supabase.co';       // paste your Project URL
+const SUPABASE_KEY = 'eyJhbGci...';                     // paste your anon key
+
+async function supa(table, options = {}) {
+  const { method = 'GET', body, match } = options;
+  let url = `${SUPABASE_URL}/rest/v1/${table}`;
+  if (match) {
+    const q = Object.entries(match).map(([k, v]) => `${k}=eq.${encodeURIComponent(v)}`).join('&');
+    url += '?' + q;
+  }
+  const res = await fetch(url, {
+    method,
+    headers: {
+      'apikey': SUPABASE_KEY,
+      'Authorization': 'Bearer ' + SUPABASE_KEY,
+      'Content-Type': 'application/json',
+      'Prefer': method === 'POST' ? 'return=representation' : ''
+    },
+    body: body ? JSON.stringify(body) : undefined
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return method === 'DELETE' ? true : res.json();
+}
 
 const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
@@ -309,30 +332,22 @@ async function doLogin(form) {
   const email = String(fd.get('email') || '').trim().toLowerCase();
   const pw = String(fd.get('password') || '');
 
-  let result;
   try {
-    result = await api('login', { email: email, password_hash: hash(pw) });
+    const rows = await supa('users', {
+      match: { email: email, password_hash: hash(pw) }
+    });
+    if (!rows || !rows.length) return toast('Invalid email or password.', 'error');
+    const user = rows[0];
+    session = { userId: user.id, name: user.name, email: user.email, role: user.role };
+    localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+    state.view = 'dashboard';
+    state.roleView = 'dashboard';
+    state.step = 1;
+    toast('Welcome, ' + user.name.split(' ')[0] + '!');
+    renderAll();
   } catch (err) {
-    return toast('Cannot reach the server. Check your internet.', 'error');
+    toast('Cannot reach the server.', 'error');
   }
-
-  if (!result || !result.success) {
-    return toast((result && result.error) || 'Invalid email or password.', 'error');
-  }
-
-  session = {
-    userId: result.user.id,
-    name: result.user.name,
-    email: result.user.email,
-    role: result.user.role
-  };
-  localStorage.setItem(SESSION_KEY, JSON.stringify(session));
-  state.view = 'dashboard';
-  state.roleView = 'dashboard';
-  state.step = 1;
-
-  toast('Welcome, ' + session.name.split(' ')[0] + '!');
-  renderAll();
 }
 
 async function doRegister(form) {
@@ -346,28 +361,21 @@ async function doRegister(form) {
   if (pw.length < 6) return toast('Password must be at least 6 characters.', 'error');
   if (pw !== pw2) return toast('Passwords do not match.', 'error');
 
-  let result;
   try {
-    result = await api('register', {
-      name: name,
-      email: email,
-      password_hash: hash(pw)
+    const rows = await supa('users', {
+      method: 'POST',
+      body: { name, email, password_hash: hash(pw), role: 'student' }
     });
+    const user = rows[0];
+    session = { userId: user.id, name: user.name, email: user.email, role: user.role };
+    localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+    state.view = 'dashboard';
+    state.step = 1;
+    toast('Account created. Welcome to UCC!');
+    renderAll();
   } catch (err) {
-    return toast('Cannot reach the server.', 'error');
+    toast('Email already registered or connection failed.', 'error');
   }
-
-  if (!result || !result.success) {
-    return toast((result && result.error) || 'Registration failed.', 'error');
-  }
-
-  session = { userId: result.user_id, name, email, role: 'student' };
-  localStorage.setItem(SESSION_KEY, JSON.stringify(session));
-  state.view = 'dashboard';
-  state.step = 1;
-
-  toast('Account created. Welcome to UCC!');
-  renderAll();
 }
 
 function doLogout() {
