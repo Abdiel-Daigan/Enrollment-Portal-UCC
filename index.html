@@ -3,15 +3,32 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="Unida Christian Colleges — Online Admissions & Enrollment Portal">
 <title>Unida Christian Colleges</title>
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
 
-<nav id="navbar" class="navbar hidden"></nav>
-<section id="authPage" class="hero-wrap"></section>
-<main id="pageWrap" class="page-wrap hidden"></main>
-<div id="toastRoot" class="toast-root"></div>
+  <!-- NAVBAR -->
+  <nav id="navbar" class="navbar hidden"></nav>
+
+  <!-- AUTH / LANDING -->
+  <section id="authPage" class="hero-wrap"></section>
+
+  <!-- STUDENT PORTAL (existing layout) -->
+  <main id="pageWrap" class="page-wrap hidden"></main>
+
+  <!-- ADMIN & FACULTY PORTAL (new role-based shell) -->
+  <div id="roleShell" class="role-shell hidden">
+    <aside id="roleSidebar" class="role-sidebar"></aside>
+    <div class="role-main">
+      <header id="roleTopbar" class="role-topbar"></header>
+      <div id="roleContent" class="role-content"></div>
+    </div>
+  </div>
+
+  <!-- OVERLAYS -->
+  <div id="toastRoot" class="toast-root"></div>
 
 <script src="app.js"></script>
 </body>
