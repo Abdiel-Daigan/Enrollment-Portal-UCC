@@ -149,10 +149,10 @@ const STEP_LABELS = [
 
 const NAV_ITEMS = [
   { key: 'dashboard', label: 'Dashboard' },
+  { key: 'browse',    label: 'Browse Courses' },
   { key: 'apply',     label: 'Apply' },
-  { key: 'programs',  label: 'Programs' },
-  { key: 'documents', label: 'Documents' },
-  { key: 'review',    label: 'Review' }
+  { key: 'schedule',  label: 'My Schedule' },
+  { key: 'records',   label: 'My Records' }
 ];
 
 const CREST_SVG = `
@@ -574,6 +574,101 @@ function renderStudentDashboard() {
         </div>
       `}
     </div>
+  `;
+}
+
+async function renderBrowseCourses() {
+  const user = currentUser();
+  if (!user) return '<div class="rp-empty">Not signed in.</div>';
+
+  // Get the student's application → their chosen program
+  const appRows = await supa('applications', { match: { user_id: user.id } }).catch(() => []);
+  const app = appRows && appRows[0];
+  const programId = app && app.program && app.program.preferred;
+
+  if (!programId) {
+    return `
+      <div class="progress-card">
+        <h3>Browse Courses</h3>
+        <div class="rp-notice gold">
+          <span>⚠️</span>
+          <span>Please complete the <strong>Program Choice</strong> step in your application first.
+          We can't show courses until we know your program.</span>
+        </div>
+        <button class="btn btn-primary" data-nav="apply">Go to Application →</button>
+      </div>
+    `;
+  }
+
+  // Load courses for the program and all sections
+  const [courses, sections, myEnrollments] = await Promise.all([
+    supa('courses', { match: { program_id: Number(programId) } }).catch(() => []),
+    supa('sections').catch(() => []),
+    supa('enrollments', { match: { user_id: user.id } }).catch(() => [])
+  ]);
+
+  const mySectionIds = new Set(myEnrollments.map((e) => String(e.section_id)));
+
+  // Group sections by course
+  const courseCards = courses.map((c) => {
+    const courseSections = sections.filter((s) => String(s.course_id) === String(c.id));
+    if (!courseSections.length) return '';
+
+    const sectionCards = courseSections.map((sec) => {
+      const enrolled = mySectionIds.has(String(sec.id));
+      const full = Number(sec.capacity) <= 0 || sec.status === 'Full';
+      let btn;
+      if (enrolled) {
+        btn = '<button class="btn btn-ghost btn-sm" disabled>✓ Enrolled</button>';
+      } else if (full) {
+        btn = '<button class="btn btn-ghost btn-sm" disabled>Section Full</button>';
+      } else {
+        btn = `<button class="btn btn-primary btn-sm"
+                        data-enroll-section="${sec.id}">Enroll →</button>`;
+      }
+      return `
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;
+                    padding:12px 14px;border:1.5px solid var(--line);border-radius:10px;
+                    background:#fff;margin-bottom:8px">
+          <div style="flex:1">
+            <div style="font-size:13.5px;font-weight:700">Section ${esc(sec.section_name || 'A')}</div>
+            <div style="font-size:12.5px;color:var(--muted);margin-top:3px">
+              🕒 ${esc(sec.schedule || 'TBA')} &nbsp;·&nbsp; 📍 ${esc(sec.room || 'TBA')}
+              &nbsp;·&nbsp; Capacity ${sec.capacity || 30}
+            </div>
+          </div>
+          ${btn}
+        </div>`;
+    }).join('');
+
+    return `
+      <div class="progress-card" style="margin-bottom:18px">
+        <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:14px">
+          <div>
+            <div style="font-size:12px;font-weight:800;color:var(--gold-600);letter-spacing:.7px">
+              ${esc(c.code || '')}
+            </div>
+            <h3 style="font-size:18px;margin-top:2px">${esc(c.title || '')}</h3>
+            <div style="font-size:12.5px;color:var(--muted);margin-top:3px">
+              ${c.units || 3} units
+            </div>
+          </div>
+          <span class="rp-badge green">${courseSections.length} section(s)</span>
+        </div>
+        ${sectionCards}
+      </div>`;
+  }).join('');
+
+  return `
+    <div class="college-banner" style="min-height:160px">
+      <div class="banner-text" style="padding:28px 34px">
+        <h2 style="font-size:26px">Browse Courses</h2>
+        <div class="banner-sub" style="font-size:16px;margin-bottom:6px">Enroll in Available Sections</div>
+        <p>Choose a section for each course in your program. You can drop them later from your schedule.</p>
+      </div>
+      <div class="banner-img"></div>
+    </div>
+    ${courseCards || '<div class="progress-card rp-empty"><span class="big">📚</span>No courses found for your program yet.</div>'}
   `;
 }
 
@@ -1682,6 +1777,11 @@ document.addEventListener('click', (e) => {
   switch (action) {
     case 'closeRoleModal': closeRoleModal(); break;
 
+    case 'enroll-section': {
+  const sectionId = Number(btn.dataset.enrollSection);
+  await enrollInSection(sectionId);
+  break;
+}
     case 'authTab':
       state.authTab = btn.dataset.tab;
       renderAuthPage();
@@ -2332,6 +2432,12 @@ function renderAll() {
   renderNavbar();
 
   switch (state.view) {
+    case 'browse':
+  pageWrap.innerHTML = '<div class="progress-card"><h3>Loading courses…</h3></div>';
+  renderBrowseCourses().then((html) => {
+    pageWrap.innerHTML = html;
+  });
+  break;
     case 'dashboard':
       pageWrap.innerHTML = renderStudentDashboard();
       break;
@@ -2409,4 +2515,58 @@ if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', safeBoot);
 } else {
   safeBoot();
+}
+
+document.addEventListener('click', async (e) => {
+  const btn = e.target.closest('[data-enroll-section]');
+  if (!btn) return;
+  const sectionId = Number(btn.dataset.enrollSection);
+  if (!sectionId) return;
+  await enrollInSection(sectionId);
+});
+
+async function enrollInSection(sectionId) {
+  const user = currentUser();
+  if (!user) return toast('Please sign in first.', 'error');
+
+  try {
+    // 1. Load the section and its course
+    const sections = await supa('sections', { match: { id: sectionId } });
+    if (!sections || !sections.length) return toast('Section not found.', 'error');
+    const section = sections[0];
+
+    // 2. Load the course to get units and title
+    const courses = await supa('courses', { match: { id: section.course_id } });
+    const course = courses && courses[0];
+
+    // 3. Prevent double-enrollment
+    const existing = await supa('enrollments', {
+      match: { user_id: user.id, section_id: sectionId }
+    });
+    if (existing && existing.length) {
+      return toast('You are already enrolled in this section.', 'error');
+    }
+
+    // 4. Check capacity
+    const allInSection = await supa('enrollments', { match: { section_id: sectionId } });
+    if (Number(section.capacity) > 0 && allInSection.length >= Number(section.capacity)) {
+      return toast('This section is full.', 'error');
+    }
+
+    // 5. Insert the enrollment row
+    await supa('enrollments', {
+      method: 'POST',
+      body: {
+        user_id: user.id,
+        section_id: sectionId,
+        status: 'Enrolled'
+      }
+    });
+
+    toast(`Enrolled in ${course ? course.code : 'section'}!`);
+    renderAll();
+  } catch (err) {
+    console.error(err);
+    toast('Enrollment failed. Try again.', 'error');
+  }
 }
