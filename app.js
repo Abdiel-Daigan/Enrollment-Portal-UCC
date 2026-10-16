@@ -1153,4 +1153,35 @@ function boot() {
   renderAll();
 }
 
-boot();
+// === SAFE BOOT: wait for DOM and show visible error if anything fails ===
+function safeBoot() {
+  try {
+    if (!document.getElementById('authPage')) {
+      document.body.innerHTML =
+        '<pre style="background:#fff;color:#900;padding:24px;font:14px monospace">' +
+        'ERROR: #authPage not found. Check index.html — the <section id="authPage"> tag is missing.\n' +
+        '</pre>';
+      return;
+    }
+    if (!document.getElementById('toastRoot')) {
+      document.body.innerHTML =
+        '<pre style="background:#fff;color:#900;padding:24px;font:14px monospace">' +
+        'ERROR: #toastRoot not found. Check index.html.\n' +
+        '</pre>';
+      return;
+    }
+    boot();
+  } catch (err) {
+    document.body.innerHTML =
+      '<pre style="background:#fff;color:#900;padding:24px;font:14px monospace">' +
+      'STARTUP ERROR:\n\n' + (err && err.message) + '\n\n' +
+      (err && err.stack ? err.stack : '') +
+      '</pre>';
+  }
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', safeBoot);
+} else {
+  safeBoot();
+}
