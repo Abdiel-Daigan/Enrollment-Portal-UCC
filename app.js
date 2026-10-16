@@ -37,6 +37,18 @@ function initials(name) {
   return String(name || '?').trim().split(/\s+/).slice(0, 2)
     .map((w) => w[0]).join('').toUpperCase();
 }
+/* ---------- API (PHP + MySQL backend) ---------- */
+const API_URL = 'https://bscs3rdyear2026-ucc-portal.infinityfreeapp.com/api.php';
+
+async function api(action, body = null) {
+  const options = {
+    method: body ? 'POST' : 'GET',
+    headers: { 'Content-Type': 'application/json' }
+  };
+  if (body) options.body = JSON.stringify(body);
+  const res = await fetch(API_URL + '?action=' + action, options);
+  return res.json();
+}
 
 function toast(msg, type = 'success') {
   const el = document.createElement('div');
@@ -292,26 +304,38 @@ function computeCompletedSteps(app) {
 
 /* ============================ AUTH ============================ */
 
-function doLogin(form) {
+async function doLogin(form) {
   const fd = new FormData(form);
   const email = String(fd.get('email') || '').trim().toLowerCase();
   const pw = String(fd.get('password') || '');
 
-  const user = db.users.find((u) => u.email.toLowerCase() === email);
-  if (!user) return toast('No account found with that email.', 'error');
-  if (user.password_hash !== hash(pw)) return toast('Incorrect password.', 'error');
+  let result;
+  try {
+    result = await api('login', { email: email, password_hash: hash(pw) });
+  } catch (err) {
+    return toast('Cannot reach the server. Check your internet.', 'error');
+  }
 
-  session = { userId: user.id, name: user.name, email: user.email, role: user.role };
+  if (!result || !result.success) {
+    return toast((result && result.error) || 'Invalid email or password.', 'error');
+  }
+
+  session = {
+    userId: result.user.id,
+    name: result.user.name,
+    email: result.user.email,
+    role: result.user.role
+  };
   localStorage.setItem(SESSION_KEY, JSON.stringify(session));
   state.view = 'dashboard';
   state.roleView = 'dashboard';
   state.step = 1;
 
-  toast(`Welcome, ${user.name.split(' ')[0]}!`);
+  toast('Welcome, ' + session.name.split(' ')[0] + '!');
   renderAll();
 }
 
-function doRegister(form) {
+async function doRegister(form) {
   const fd = new FormData(form);
   const name  = String(fd.get('name') || '').trim();
   const email = String(fd.get('email') || '').trim().toLowerCase();
@@ -321,15 +345,23 @@ function doRegister(form) {
   if (!name || !email || !pw) return toast('Please complete all fields.', 'error');
   if (pw.length < 6) return toast('Password must be at least 6 characters.', 'error');
   if (pw !== pw2) return toast('Passwords do not match.', 'error');
-  if (db.users.some((u) => u.email.toLowerCase() === email)) {
-    return toast('That email is already registered.', 'error');
+
+  let result;
+  try {
+    result = await api('register', {
+      name: name,
+      email: email,
+      password_hash: hash(pw)
+    });
+  } catch (err) {
+    return toast('Cannot reach the server.', 'error');
   }
 
-  const id = db.users.reduce((m, u) => Math.max(m, u.id), 0) + 1;
-  db.users.push({ id, name, email, password_hash: hash(pw), role: 'student', created_at: nowISO() });
-  saveDB();
+  if (!result || !result.success) {
+    return toast((result && result.error) || 'Registration failed.', 'error');
+  }
 
-  session = { userId: id, name, email, role: 'student' };
+  session = { userId: result.user_id, name, email, role: 'student' };
   localStorage.setItem(SESSION_KEY, JSON.stringify(session));
   state.view = 'dashboard';
   state.step = 1;
@@ -1686,18 +1718,32 @@ document.addEventListener('click', (e) => {
     }
 
     case 'submitApplication': {
-      const app = currentApp();
-      const chk = $('#certifyCheck');
-      if (!chk || !chk.checked) return toast('Please certify that your information is correct.', 'error');
-      app.certified = true;
-      app.submitted = true;
-      app.submittedAt = nowISO();
-      app.reference = 'UCC-' + Date.now().toString().slice(-8);
-      saveDB();
-      toast('Application submitted successfully!');
-      renderAll();
-      break;
-    }
+  const app = currentApp();
+  const chk = $('#certifyCheck');
+  if (!chk || !chk.checked) return toast('Please certify that your information is correct.', 'error');
+  app.certified = true;
+  app.submitted = true;
+  app.submittedAt = nowISO();
+  app.reference = 'UCC-' + Date.now().toString().slice(-8);
+  saveDB();
+
+  // Save to MySQL in the background
+  api('save_application', {
+    user_id: session.userId,
+    personal: app.personal,
+    education: app.education,
+    program: app.program,
+    documents: app.documents,
+    doc_type: app.docType,
+    submitted: true,
+    submitted_at: app.submittedAt,
+    reference: app.reference
+  }).catch(() => {});
+
+  toast('Application submitted successfully!');
+  renderAll();
+  break;
+}
 
     case 'viewApplication':
       state.view = 'apply';
