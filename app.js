@@ -1777,11 +1777,6 @@ document.addEventListener('click', (e) => {
   switch (action) {
     case 'closeRoleModal': closeRoleModal(); break;
 
-    case 'enroll-section': {
-  const sectionId = Number(btn.dataset.enrollSection);
-  await enrollInSection(sectionId);
-  break;
-}
     case 'authTab':
       state.authTab = btn.dataset.tab;
       renderAuthPage();
@@ -2511,12 +2506,6 @@ function safeBoot() {
   }
 }
 
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', safeBoot);
-} else {
-  safeBoot();
-}
-
 document.addEventListener('click', async (e) => {
   const btn = e.target.closest('[data-enroll-section]');
   if (!btn) return;
@@ -2569,4 +2558,11 @@ async function enrollInSection(sectionId) {
     console.error(err);
     toast('Enrollment failed. Try again.', 'error');
   }
+}
+
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', safeBoot);
+} else {
+  safeBoot();
 }
