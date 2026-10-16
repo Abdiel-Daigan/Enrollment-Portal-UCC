@@ -352,7 +352,7 @@ async function doLogin(form) {
     state.roleView = 'dashboard';
     state.step = 1;
     toast('Welcome, ' + user.name.split(' ')[0] + '!');
-    setTimeout(() => { window.location.reload(); }, 800);
+
     renderAll();
   } catch (err) {
     toast('Cannot reach the server.', 'error');
@@ -381,7 +381,7 @@ async function doRegister(form) {
     state.view = 'dashboard';
     state.step = 1;
     toast('Account created. Welcome to UCC!');
-    setTimeout(() => { window.location.reload(); }, 800);
+    
     renderAll();
   } catch (err) {
     toast('Email already registered or connection failed.', 'error');
