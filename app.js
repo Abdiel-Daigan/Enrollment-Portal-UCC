@@ -295,7 +295,17 @@ function loadDB() {
 
 function saveDB() { localStorage.setItem(DB_KEY, JSON.stringify(db)); }
 
-function currentUser() { return db.users.find((u) => u.id === session.userId); }
+function currentUser() {
+  if (!session) return null;
+  // Return a user object built from the session itself, since Supabase is
+  // now the source of truth — db.users is only used for caching in some spots.
+  return {
+    id: session.userId,
+    name: session.name,
+    email: session.email,
+    role: session.role
+  };
+}
 
 function currentApp() {
   const u = currentUser();
@@ -344,6 +354,7 @@ async function doLogin(form) {
     state.roleView = 'dashboard';
     state.step = 1;
     toast('Welcome, ' + user.name.split(' ')[0] + '!');
+    setTimeout(() => { window.location.reload(); }, 800);
     renderAll();
   } catch (err) {
     toast('Cannot reach the server.', 'error');
@@ -372,6 +383,7 @@ async function doRegister(form) {
     state.view = 'dashboard';
     state.step = 1;
     toast('Account created. Welcome to UCC!');
+    setTimeout(() => { window.location.reload(); }, 800);
     renderAll();
   } catch (err) {
     toast('Email already registered or connection failed.', 'error');
@@ -2287,20 +2299,21 @@ function renderAll() {
     return;
   }
 
-  const user = currentUser();
   if (!user) {
-    session = null;
-    localStorage.removeItem(SESSION_KEY);
-    return renderAll();
-  }
+  session = null;
+  localStorage.removeItem(SESSION_KEY);
+  return renderAll();
+}
 
-  if (user.role !== 'student') {
-    authPage.classList.add('hidden');
-    pageWrap.classList.add('hidden');
-    navbar.classList.add('hidden');
-    renderRoleShell();
-    return;
-  }
+if (user.role === 'admin' || user.role === 'faculty') {
+  authPage.classList.add('hidden');
+  pageWrap.classList.add('hidden');
+  navbar.classList.add('hidden');
+  renderRoleShell();
+  return;
+}
+
+// Otherwise → student
 
   // Student path
   const roleShell = document.getElementById('roleShell');
