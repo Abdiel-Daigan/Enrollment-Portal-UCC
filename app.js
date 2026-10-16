@@ -2289,7 +2289,6 @@ function renderAll() {
   const pageWrap = $('#pageWrap');
   const navbar = $('#navbar');
 
-  // --- Not logged in ---
   if (!session) {
     const roleShell = document.getElementById('roleShell');
     if (roleShell) roleShell.classList.add('hidden');
@@ -2300,25 +2299,23 @@ function renderAll() {
     return;
   }
 
-  // --- Logged in — pull the user from session ---
-  const user = currentUser();
-
   if (!user) {
-    session = null;
-    localStorage.removeItem(SESSION_KEY);
-    return renderAll();
-  }
+  session = null;
+  localStorage.removeItem(SESSION_KEY);
+  return renderAll();
+}
 
-  // --- Admin / Faculty → role shell ---
-  if (user.role === 'admin' || user.role === 'faculty') {
-    authPage.classList.add('hidden');
-    pageWrap.classList.add('hidden');
-    navbar.classList.add('hidden');
-    renderRoleShell();
-    return;
-  }
+if (user.role === 'admin' || user.role === 'faculty') {
+  authPage.classList.add('hidden');
+  pageWrap.classList.add('hidden');
+  navbar.classList.add('hidden');
+  renderRoleShell();
+  return;
+}
 
-  // --- Student → student portal ---
+// Otherwise → student
+
+  // Student path
   const roleShell = document.getElementById('roleShell');
   if (roleShell) roleShell.classList.add('hidden');
   authPage.classList.add('hidden');
@@ -2326,29 +2323,12 @@ function renderAll() {
   renderNavbar();
 
   switch (state.view) {
-    case 'dashboard':
-      pageWrap.innerHTML = renderStudentDashboard();
-      break;
-    case 'apply':
-      pageWrap.innerHTML = renderApply();
-      break;
-    case 'programs':
-      state.view = 'apply';
-      state.step = 3;
-      pageWrap.innerHTML = renderApply();
-      break;
-    case 'documents':
-      state.view = 'apply';
-      state.step = 4;
-      pageWrap.innerHTML = renderApply();
-      break;
-    case 'review':
-      state.view = 'apply';
-      state.step = 5;
-      pageWrap.innerHTML = renderApply();
-      break;
-    default:
-      pageWrap.innerHTML = renderStudentDashboard();
+    case 'dashboard': pageWrap.innerHTML = renderStudentDashboard(); break;
+    case 'apply':     pageWrap.innerHTML = renderApply(); break;
+    case 'programs':  state.view = 'apply'; state.step = 3; pageWrap.innerHTML = renderApply(); break;
+    case 'documents': state.view = 'apply'; state.step = 4; pageWrap.innerHTML = renderApply(); break;
+    case 'review':    state.view = 'apply'; state.step = 5; pageWrap.innerHTML = renderApply(); break;
+    default:          pageWrap.innerHTML = renderStudentDashboard();
   }
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
