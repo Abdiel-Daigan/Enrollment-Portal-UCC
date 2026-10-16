@@ -1047,3 +1047,319 @@ a { color: var(--forest-600); text-decoration: none; }
   border-radius: 50%;
   background: #fff;
   display
+
+/* =========================================================
+   ROLE SHELL (Admin + Faculty)
+   ========================================================= */
+
+.role-shell {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  min-height: 100vh;
+}
+
+.role-sidebar {
+  background: linear-gradient(180deg, var(--forest-800), var(--forest-700));
+  color: #d6e8de;
+  padding: 22px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+}
+
+.role-side-brand { display: flex; align-items: center; gap: 12px; padding: 0 6px; }
+.role-side-brand .rsb-logo {
+  width: 42px; height: 42px;
+  border-radius: 12px;
+  background: linear-gradient(140deg, var(--gold-400), var(--gold-600));
+  color: #3a2c00;
+  display: grid; place-items: center;
+  font-weight: 900;
+  font-size: 13px;
+  flex-shrink: 0;
+}
+.role-side-brand strong { color: #fff; font-size: 14.5px; display: block; line-height: 1.15; }
+.role-side-brand span { color: var(--gold-300); font-size: 12px; letter-spacing: .4px; }
+
+.role-nav { display: flex; flex-direction: column; gap: 4px; }
+.role-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 11px 13px;
+  border-radius: 11px;
+  color: #c8ecdf;
+  font-size: 14px;
+  font-weight: 600;
+  text-align: left;
+  transition: .16s;
+  width: 100%;
+}
+.role-nav-item .rni { font-size: 15px; width: 20px; text-align: center; }
+.role-nav-item:hover { background: rgba(255,255,255,.09); color: #fff; }
+.role-nav-item.active {
+  background: linear-gradient(135deg, rgba(212,175,55,.95), rgba(212,175,55,.72));
+  color: #33270a;
+}
+
+.role-side-foot { margin-top: auto; display: grid; gap: 10px; }
+.role-side-foot .role-tag {
+  font-size: 11px;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--gold-300);
+  padding-left: 6px;
+}
+.role-side-foot button {
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1.5px solid rgba(255,255,255,.22);
+  color: #d6f5e8;
+  background: transparent;
+  font-weight: 700;
+  font-size: 13.5px;
+  transition: .18s;
+}
+.role-side-foot button:hover { background: rgba(255,255,255,.1); }
+
+.role-main { display: flex; flex-direction: column; min-width: 0; background: var(--cream); }
+
+.role-topbar {
+  background: #fff;
+  border-bottom: 1px solid var(--line);
+  padding: 16px 30px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+.role-topbar h1 { font-size: 20px; font-weight: 800; color: var(--forest-800); }
+.role-topbar .rt-sub { font-size: 12.8px; color: var(--muted); }
+.role-topbar .rt-user { display: flex; align-items: center; gap: 12px; }
+.role-topbar .rt-avatar {
+  width: 40px; height: 40px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, var(--forest-500), var(--forest-700));
+  color: #fff;
+  display: grid; place-items: center;
+  font-weight: 800;
+  font-size: 14px;
+}
+.role-topbar .rt-who { text-align: right; line-height: 1.25; }
+.role-topbar .rt-who strong { display: block; font-size: 13.6px; color: var(--ink); }
+.role-topbar .rt-who span { font-size: 11.6px; color: var(--muted); text-transform: capitalize; }
+
+.role-content { padding: 26px 30px 70px; }
+
+/* ---- Shared role-page primitives ---- */
+
+.rp-grid-4 { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 16px; margin-bottom: 22px; }
+.rp-grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 16px; }
+.rp-grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 16px; }
+
+.rp-card {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 18px 20px;
+  box-shadow: var(--shadow);
+}
+.rp-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+.rp-card-head h3 { font-size: 15.5px; font-weight: 800; color: var(--forest-800); }
+.rp-card-head .rp-hint { font-size: 12.4px; color: var(--muted); }
+
+.rp-stat { display: flex; align-items: flex-start; gap: 13px; }
+.rp-stat .ic {
+  width: 44px; height: 44px;
+  border-radius: 13px;
+  display: grid; place-items: center;
+  font-size: 18px;
+  background: var(--mint-100);
+  color: var(--forest-700);
+  flex-shrink: 0;
+}
+.rp-stat.gold .ic { background: #fdf6e3; color: var(--gold-600); }
+.rp-stat .val { font-size: 25px; font-weight: 800; line-height: 1.1; color: var(--forest-800); }
+.rp-stat .lbl { font-size: 12.6px; color: var(--muted); font-weight: 600; }
+.rp-stat .sub { font-size: 11.8px; color: var(--muted); margin-top: 3px; }
+
+.rp-table-wrap { overflow-x: auto; border-radius: var(--radius); border: 1px solid var(--line); background: #fff; }
+.rp-table { width: 100%; border-collapse: collapse; font-size: 13.6px; min-width: 620px; }
+.rp-table thead th {
+  background: var(--mint-100);
+  color: var(--forest-800);
+  text-align: left;
+  font-size: 11.8px;
+  letter-spacing: .7px;
+  text-transform: uppercase;
+  padding: 12px 14px;
+  font-weight: 800;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--line);
+}
+.rp-table tbody td { padding: 12px 14px; border-bottom: 1px solid #eef7f3; vertical-align: middle; }
+.rp-table tbody tr:last-child td { border-bottom: none; }
+.rp-table tbody tr:hover { background: #f4fbf8; }
+
+.rp-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+.rp-badge.green { background: var(--mint-100); color: var(--forest-700); }
+.rp-badge.gold  { background: #fdf6e3; color: var(--gold-600); }
+.rp-badge.red   { background: #fdeceb; color: var(--danger); }
+.rp-badge.grey  { background: #eef1f0; color: #64756f; }
+
+.rp-toolbar {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-bottom: 18px;
+}
+.rp-toolbar .grow { flex: 1; min-width: 180px; }
+.rp-input {
+  padding: 9px 13px;
+  border: 1.5px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  font-size: 13.6px;
+  width: 100%;
+}
+.rp-input:focus { outline: none; border-color: var(--forest-500); box-shadow: 0 0 0 4px rgba(30,122,80,.12); }
+
+.rp-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: var(--radius-sm);
+  font-weight: 700;
+  font-size: 13.6px;
+  transition: .2s;
+  border: 1.5px solid transparent;
+  white-space: nowrap;
+}
+.rp-btn-primary { background: var(--forest-700); color: #fff; box-shadow: 0 6px 20px rgba(17,73,50,.25); }
+.rp-btn-primary:hover { background: var(--forest-600); transform: translateY(-1px); }
+.rp-btn-gold { background: linear-gradient(135deg, var(--gold-400), var(--gold-600)); color: #3a2c00; }
+.rp-btn-gold:hover { transform: translateY(-1px); }
+.rp-btn-ghost { background: transparent; border-color: var(--line); color: var(--forest-700); }
+.rp-btn-ghost:hover { background: var(--mint-100); }
+.rp-btn-danger { background: #fdeceb; color: var(--danger); border-color: #f7cfcd; }
+.rp-btn-danger:hover { background: #fbdcdb; }
+.rp-btn-sm { padding: 7px 12px; font-size: 12.6px; border-radius: 9px; }
+
+.rp-empty { text-align: center; padding: 44px 20px; color: var(--muted); font-size: 14px; }
+.rp-empty .big { font-size: 34px; display: block; margin-bottom: 10px; opacity: .55; }
+
+.rp-notice {
+  display: flex;
+  gap: 11px;
+  padding: 13px 15px;
+  border-radius: var(--radius-sm);
+  font-size: 13.2px;
+  line-height: 1.55;
+  border: 1px solid;
+  margin-bottom: 18px;
+}
+.rp-notice.mint { background: var(--mint-100); border-color: var(--mint-200); color: var(--forest-800); }
+.rp-notice.gold { background: #fdf6e3; border-color: var(--gold-200, #f8e9b8); color: #6b5200; }
+.rp-notice.info { background: #eef4ff; border-color: #d5e3ff; color: #1c4b96; }
+
+.rp-progress { height: 8px; border-radius: 999px; background: var(--mint-100); overflow: hidden; }
+.rp-progress > i { display: block; height: 100%; background: linear-gradient(90deg, var(--forest-400), var(--forest-700)); }
+
+.rp-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 46, 31, .55);
+  backdrop-filter: blur(3px);
+  display: grid;
+  place-items: center;
+  padding: 22px;
+  z-index: 100;
+  animation: rpFadeIn .16s ease;
+}
+@keyframes rpFadeIn { from { opacity: 0 } to { opacity: 1 } }
+
+.rp-modal {
+  background: #fff;
+  border-radius: 18px;
+  width: min(600px, 100%);
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: var(--shadow-lg);
+  animation: rpPop .2s ease;
+  overflow: hidden;
+}
+.rp-modal.wide { width: min(900px, 100%); }
+@keyframes rpPop { from { transform: translateY(14px) scale(.97); opacity: 0 } to { transform: none; opacity: 1 } }
+
+.rp-modal-head {
+  padding: 18px 22px;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: linear-gradient(135deg, var(--mint-100), #fff);
+}
+.rp-modal-head h3 { font-size: 16.5px; font-weight: 800; color: var(--forest-800); }
+.rp-modal-body { padding: 20px 22px; overflow-y: auto; }
+.rp-modal-foot {
+  padding: 15px 22px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  background: var(--cream);
+  flex-wrap: wrap;
+}
+
+.rp-code {
+  background: #0d3b28;
+  color: #c9f5e4;
+  padding: 16px 18px;
+  border-radius: var(--radius);
+  font-family: "SF Mono", Consolas, "Courier New", monospace;
+  font-size: 12.3px;
+  line-height: 1.65;
+  overflow-x: auto;
+  border: 1px solid #17654f;
+  white-space: pre;
+}
+
+@media (max-width: 1080px) { .rp-grid-4 { grid-template-columns: repeat(2, minmax(0,1fr)); } }
+@media (max-width: 900px) {
+  .role-shell { grid-template-columns: 1fr; }
+  .role-sidebar { position: static; height: auto; padding: 16px; flex-direction: row; align-items: center; flex-wrap: wrap; }
+  .role-sidebar .role-nav { flex-direction: row; overflow-x: auto; }
+  .role-nav-item { width: auto; white-space: nowrap; }
+  .role-side-foot { margin-top: 0; flex-direction: row; }
+  .role-content { padding: 20px 16px 60px; }
+  .role-topbar { padding: 14px 16px; }
+  .rp-grid-3, .rp-grid-2 { grid-template-columns: 1fr; }
+}
+@media (max-width: 560px) { .rp-grid-4 { grid-template-columns: 1fr; } }   
