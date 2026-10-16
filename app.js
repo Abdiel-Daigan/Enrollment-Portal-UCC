@@ -2298,7 +2298,9 @@ function renderAll() {
     renderAuthPage();
     return;
   }
-
+   
+  const user = currentUser();
+   
   if (!user) {
   session = null;
   localStorage.removeItem(SESSION_KEY);
