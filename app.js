@@ -346,15 +346,23 @@ async function doLogin(form) {
     });
     if (!rows || !rows.length) return toast('Invalid email or password.', 'error');
     const user = rows[0];
+
+    // ⬇️ THIS LINE MUST COME BEFORE ANY RELOAD
     session = { userId: user.id, name: user.name, email: user.email, role: user.role };
     localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+
     state.view = 'dashboard';
     state.roleView = 'dashboard';
     state.step = 1;
+
     toast('Welcome, ' + user.name.split(' ')[0] + '!');
 
+    // Either render immediately...
     renderAll();
+
+    // ...OR reload (not both). Pick ONE.
   } catch (err) {
+    console.error(err);
     toast('Cannot reach the server.', 'error');
   }
 }
