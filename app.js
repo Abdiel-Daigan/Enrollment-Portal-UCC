@@ -1,5 +1,6 @@
 /* =========================================================================
    UNIDA CHRISTIAN COLLEGES — ADMISSIONS PORTAL (app.js)
+   PART 1 / 4 — Utilities, Constants, State, Database
    ========================================================================= */
 
 /* ============================ UTILITIES ============================ */
@@ -75,11 +76,11 @@ const DOCS_TRANSFEREE = [
 ];
 
 const STEP_LABELS = [
-  { id: 1, key: 'personal',  label: 'Personal Information', icon: '👤' },
+  { id: 1, key: 'personal',  label: 'Personal Information',   icon: '👤' },
   { id: 2, key: 'education', label: 'Educational Background', icon: '🏛️' },
-  { id: 3, key: 'program',   label: 'Program Choice', icon: '⚙️' },
-  { id: 4, key: 'documents', label: 'Upload Documents', icon: '📄' },
-  { id: 5, key: 'review',    label: 'Review & Submit', icon: '✓' }
+  { id: 3, key: 'program',   label: 'Program Choice',         icon: '⚙️' },
+  { id: 4, key: 'documents', label: 'Upload Documents',       icon: '📄' },
+  { id: 5, key: 'review',    label: 'Review & Submit',        icon: '✓' }
 ];
 
 const NAV_ITEMS = [
@@ -112,7 +113,7 @@ const state = {
   showUserMenu: false
 };
 
-/* ============================ DB ============================ */
+/* ============================ DATABASE ============================ */
 
 function loadDB() {
   const raw = localStorage.getItem(DB_KEY);
@@ -145,6 +146,22 @@ function currentApp() {
   return app;
 }
 
+function computeCompletedSteps(app) {
+  let done = 0;
+  if (app.personal && app.personal.first_name) done = Math.max(done, 1);
+  if (app.education && app.education.elem && app.education.elem.school) done = Math.max(done, 2);
+  if (app.program && app.program.preferred) done = Math.max(done, 3);
+  if (app.docType && app.documents) {
+    const list = app.docType === 'new' ? DOCS_NEW : DOCS_TRANSFEREE;
+    if (list.every((d) => app.documents[d.id])) done = Math.max(done, 4);
+  }
+  return done;
+}
+
+/* =========================================================================
+   PART 2 / 4 — Auth, Navbar, Auth Page
+   ========================================================================= */
+
 /* ============================ AUTH ============================ */
 
 function doLogin(form) {
@@ -167,10 +184,10 @@ function doLogin(form) {
 
 function doRegister(form) {
   const fd = new FormData(form);
-  const name = String(fd.get('name') || '').trim();
+  const name  = String(fd.get('name') || '').trim();
   const email = String(fd.get('email') || '').trim().toLowerCase();
-  const pw = String(fd.get('password') || '');
-  const pw2 = String(fd.get('password2') || '');
+  const pw    = String(fd.get('password') || '');
+  const pw2   = String(fd.get('password2') || '');
 
   if (!name || !email || !pw) return toast('Please complete all fields.', 'error');
   if (pw.length < 6) return toast('Password must be at least 6 characters.', 'error');
@@ -259,6 +276,7 @@ function renderAuthPage() {
         <circle cx="1000" cy="600" r="400" fill="url(#g1)"/>
       </svg>
     </div>
+
     <div class="hero-left">
       <h1 class="hero-heading">UNIDA CHRISTIAN COLLEGES</h1>
       <p class="hero-sub">At UCC, we shape excellence, integrity, and purpose for life.</p>
@@ -270,6 +288,7 @@ function renderAuthPage() {
         <div class="line2">AMBASSADORS!</div>
       </div>
     </div>
+
     <div class="hero-right">
       <div class="auth-card" id="authCard">
         <h2>${tab === 'login' ? 'Welcome Back' : 'Create Account'}</h2>
@@ -278,12 +297,14 @@ function renderAuthPage() {
             ? 'Sign in to continue your application.'
             : 'Register with your email to begin your application.'}
         </p>
+
         <div class="auth-tabs">
           <button class="auth-tab ${tab === 'login' ? 'active' : ''}"
                   data-action="authTab" data-tab="login">Sign In</button>
           <button class="auth-tab ${tab === 'register' ? 'active' : ''}"
                   data-action="authTab" data-tab="register">Register</button>
         </div>
+
         ${tab === 'login' ? `
           <form id="loginForm">
             <div class="field">
@@ -342,19 +363,11 @@ function renderAuthPage() {
   }
 }
 
-/* ============================ DASHBOARD ============================ */
+/* =========================================================================
+   PART 3 / 4 — Dashboard and Apply Steps
+   ========================================================================= */
 
-function computeCompletedSteps(app) {
-  let done = 0;
-  if (app.personal && app.personal.first_name) done = Math.max(done, 1);
-  if (app.education && app.education.elem && app.education.elem.school) done = Math.max(done, 2);
-  if (app.program && app.program.preferred) done = Math.max(done, 3);
-  if (app.docType && app.documents) {
-    const list = app.docType === 'new' ? DOCS_NEW : DOCS_TRANSFEREE;
-    if (list.every((d) => app.documents[d.id])) done = Math.max(done, 4);
-  }
-  return done;
-}
+/* ============================ DASHBOARD ============================ */
 
 function renderDashboard() {
   const wrap = $('#pageWrap');
@@ -375,11 +388,12 @@ function renderDashboard() {
 
     <div class="progress-card">
       <h3>Enrollment Progress</h3>
+
       <div class="steps">
         ${STEP_LABELS.map((s) => {
-          const isDone = s.id <= completed;
+          const isDone   = s.id <= completed;
           const isActive = s.id === completed + 1 && !app.submitted;
-          const cls = isDone ? 'done' : (isActive ? 'active' : '');
+          const cls      = isDone ? 'done' : (isActive ? 'active' : '');
           return `
             <div class="step ${cls}">
               <div class="step-circle">${s.icon}</div>
@@ -389,6 +403,7 @@ function renderDashboard() {
           `;
         }).join('')}
       </div>
+
       ${app.submitted ? `
         <div class="continue-bar">
           <div class="cb-icon">✓</div>
@@ -426,9 +441,9 @@ function renderApply() {
     <div class="apply-layout">
       <aside class="apply-sidebar">
         ${STEP_LABELS.map((s) => {
-          const isDone = s.id <= completed;
+          const isDone   = s.id <= completed;
           const isActive = s.id === step;
-          const cls = isActive ? 'active' : (isDone ? 'done' : '');
+          const cls      = isActive ? 'active' : (isDone ? 'done' : '');
           return `
             <button class="sidebar-step ${cls}" data-action="gotoStep" data-step="${s.id}">
               <span class="ss-icon">${s.icon}</span>
@@ -456,12 +471,13 @@ function renderApplyStep(step, app) {
   }
 }
 
-/* ---- Step 1 ---- */
+/* ---- Step 1: Personal ---- */
 function renderStepPersonal(app) {
   const p = app.personal || {};
   return `
     <h2>Personal Information</h2>
     <p class="subtitle">Please fill out the required details. All information must be accurate.</p>
+
     <form id="stepForm" class="apply-form-body" data-step="1">
       <div class="field-row" style="grid-template-columns: 1fr 1fr 1fr">
         <div class="field">
@@ -477,6 +493,7 @@ function renderStepPersonal(app) {
           <input name="last_name" required value="${esc(p.last_name || '')}">
         </div>
       </div>
+
       <div class="field-row" style="grid-template-columns: 2fr 1fr 1fr">
         <div class="field">
           <label>Address (Unit/House no., Street, Barangay, City, Province) <span class="req">*</span></label>
@@ -494,6 +511,7 @@ function renderStepPersonal(app) {
           <input name="zip" required value="${esc(p.zip || '')}">
         </div>
       </div>
+
       <div class="field-row" style="grid-template-columns: 1.4fr 1fr 1fr 0.8fr">
         <div class="field">
           <label>Email Address <span class="req">*</span></label>
@@ -520,6 +538,7 @@ function renderStepPersonal(app) {
           </select>
         </div>
       </div>
+
       <div class="field-row" style="grid-template-columns: 1fr 1.6fr 1fr">
         <div class="field">
           <label>Date of Birth <span class="req">*</span></label>
@@ -535,6 +554,7 @@ function renderStepPersonal(app) {
         </div>
       </div>
     </form>
+
     <div class="apply-footer">
       <span></span>
       <button class="btn btn-primary" data-action="nextStep" data-step="1">Next →</button>
@@ -542,7 +562,7 @@ function renderStepPersonal(app) {
   `;
 }
 
-/* ---- Step 2 ---- */
+/* ---- Step 2: Education ---- */
 function renderStepEducation(app) {
   const e = app.education || {};
   const yearOpts = (sel) => {
@@ -579,9 +599,9 @@ function renderStepEducation(app) {
     <h2>Educational Background</h2>
     <p class="subtitle">Please provide your previous school information.</p>
     <form id="stepForm" class="apply-form-body" data-step="2">
-      ${block('elem', 'Elementary', 'elem')}
-      ${block('jhs', 'Junior High School', 'jhs')}
-      ${block('shs', 'Senior High School', 'shs')}
+      ${block('elem',    'Elementary',                          'elem')}
+      ${block('jhs',     'Junior High School',                  'jhs')}
+      ${block('shs',     'Senior High School',                  'shs')}
       ${block('college', 'College / University (if applicable)', 'college')}
     </form>
     <div class="apply-footer">
@@ -591,12 +611,13 @@ function renderStepEducation(app) {
   `;
 }
 
-/* ---- Step 3 ---- */
+/* ---- Step 3: Program ---- */
 function renderStepProgram(app) {
   const p = app.program || {};
   return `
     <h2>Program Choice</h2>
     <p class="subtitle">Select the program you wish to enroll in. Make sure to choose the correct course and track based on your interest and academic background.</p>
+
     <form id="stepForm" class="apply-form-body" data-step="3">
       <div class="field" style="max-width:520px">
         <label>Preferred Program <span class="req">*</span></label>
@@ -609,6 +630,7 @@ function renderStepProgram(app) {
           `).join('')}
         </select>
       </div>
+
       <div class="program-list" style="margin-top:22px">
         <h3>Programs Offered</h3>
         <p><strong>Bachelor of Elementary Education</strong> (Generalist)</p>
@@ -625,6 +647,7 @@ function renderStepProgram(app) {
         <p><strong>Associate in Computer Technology with Specialization in Application Development</strong></p>
       </div>
     </form>
+
     <div class="apply-footer">
       <button class="btn btn-outline" data-action="prevStep" data-step="3">← Back</button>
       <button class="btn btn-primary" data-action="nextStep" data-step="3">Next →</button>
@@ -632,12 +655,13 @@ function renderStepProgram(app) {
   `;
 }
 
-/* ---- Step 4 ---- */
+/* ---- Step 4: Documents ---- */
 function renderStepDocuments(app) {
   if (!app.docType) {
     return `
       <h2>Upload Documents</h2>
       <p class="subtitle">Please upload the required documents in PDF, JPG, or PNG format. Make sure the files are clear and readable.</p>
+
       <div class="doc-choices">
         <div class="doc-choice featured" data-action="chooseDocType" data-type="new">
           <div class="dc-icon">🎓</div>
@@ -654,13 +678,16 @@ function renderStepDocuments(app) {
       </div>
     `;
   }
+
   const docs = app.docType === 'new' ? DOCS_NEW : DOCS_TRANSFEREE;
   const title = app.docType === 'new'
     ? 'Upload Documents (New Student)'
     : 'Upload Documents (Transferee / Second Courser)';
+
   return `
     <h2>${title}</h2>
     <p class="subtitle">Please upload the required documents in PDF, JPG, or PNG format. Make sure the files are clear and readable.</p>
+
     <div class="apply-form-body">
       ${docs.map((d) => {
         const has = app.documents && app.documents[d.id];
@@ -684,6 +711,7 @@ function renderStepDocuments(app) {
         `;
       }).join('')}
     </div>
+
     <div class="apply-footer">
       <button class="btn btn-outline" data-action="changeDocType">← Back</button>
       <button class="btn btn-primary" data-action="nextStep" data-step="4">Next →</button>
@@ -693,18 +721,19 @@ function renderStepDocuments(app) {
 
 /* ---- Step 5: Review ---- */
 function renderStepReview(app) {
-  const p = app.personal || {};
-  const e = app.education || {};
-  const pr = app.program || {};
+  const p  = app.personal  || {};
+  const e  = app.education || {};
+  const pr = app.program   || {};
   const prog = PROGRAMS.find((x) => String(x.id) === String(pr.preferred));
   const docs = app.docType === 'new' ? DOCS_NEW : DOCS_TRANSFEREE;
   const docCount = app.documents ? Object.keys(app.documents).length : 0;
   const fullName = [p.first_name, p.middle_name, p.last_name].filter(Boolean).join(' ');
-  const shsName = e.shs ? e.shs.school : '—';
+  const shsName  = e.shs ? e.shs.school : '—';
 
   return `
     <h2>Review & Submit</h2>
     <p class="subtitle">Please check your information carefully before submitting. You can go back and edit any section if needed.</p>
+
     <div class="review-card">
       <div class="review-row">
         <div class="rr-icon">👤</div>
@@ -714,6 +743,7 @@ function renderStepReview(app) {
         </div>
         <button class="rr-edit" data-action="gotoStep" data-step="1">✎ Edit</button>
       </div>
+
       <div class="review-row">
         <div class="rr-icon">🏛️</div>
         <div class="rr-content">
@@ -722,6 +752,7 @@ function renderStepReview(app) {
         </div>
         <button class="rr-edit" data-action="gotoStep" data-step="2">✎ Edit</button>
       </div>
+
       <div class="review-row">
         <div class="rr-icon">⚙️</div>
         <div class="rr-content">
@@ -730,6 +761,7 @@ function renderStepReview(app) {
         </div>
         <button class="rr-edit" data-action="gotoStep" data-step="3">✎ Edit</button>
       </div>
+
       <div class="review-row">
         <div class="rr-icon">📄</div>
         <div class="rr-content">
@@ -747,8 +779,7 @@ function renderStepReview(app) {
     </label>
 
     <div class="apply-footer">
-      <button class="btn btn-outline" data-action="prevStep" data-step="5">← Back
-            <button class="btn btn-outline" data-action="prevStep" data-step="5">← Back</button>
+      <button class="btn btn-outline" data-action="prevStep" data-step="5">← Back</button>
       <button class="btn btn-gold" data-action="submitApplication">✈ Submit Application</button>
     </div>
   `;
@@ -779,10 +810,14 @@ function renderSuccess(app) {
   `;
 }
 
-/* ============================ EVENT: CLICKS ============================ */
+/* =========================================================================
+   PART 4 / 4 — Events, File Upload, Render, Bootstrap
+   ========================================================================= */
+
+/* ============================ CLICK EVENTS ============================ */
 
 document.addEventListener('click', (e) => {
-  const btn = e.target.closest('[data-action]');
+  const btn    = e.target.closest('[data-action]');
   const navBtn = e.target.closest('[data-nav]');
 
   // Close user menu when clicking outside
@@ -895,12 +930,13 @@ document.addEventListener('click', (e) => {
 
     case 'viewApplication':
       state.view = 'review';
+      state.step = 5;
       renderAll();
       break;
   }
 });
 
-/* ============================ EVENT: FORMS ============================ */
+/* ============================ FORM SUBMITS ============================ */
 
 document.addEventListener('submit', (e) => {
   e.preventDefault();
@@ -919,19 +955,19 @@ function saveStep(step) {
     const fd = new FormData(form);
     const app = currentApp();
     app.personal = {
-      first_name:  String(fd.get('first_name') || '').trim(),
-      middle_name: String(fd.get('middle_name') || '').trim(),
-      last_name:   String(fd.get('last_name') || '').trim(),
-      address:     String(fd.get('address') || '').trim(),
-      region:      String(fd.get('region') || '').trim(),
-      zip:         String(fd.get('zip') || '').trim(),
-      email:       String(fd.get('email') || '').trim(),
-      phone:       String(fd.get('phone') || '').trim(),
-      civil_status:String(fd.get('civil_status') || '').trim(),
-      sex:         String(fd.get('sex') || '').trim(),
-      dob:         String(fd.get('dob') || '').trim(),
-      pob:         String(fd.get('pob') || '').trim(),
-      religion:    String(fd.get('religion') || '').trim()
+      first_name:   String(fd.get('first_name')   || '').trim(),
+      middle_name:  String(fd.get('middle_name')  || '').trim(),
+      last_name:    String(fd.get('last_name')    || '').trim(),
+      address:      String(fd.get('address')      || '').trim(),
+      region:       String(fd.get('region')       || '').trim(),
+      zip:          String(fd.get('zip')          || '').trim(),
+      email:        String(fd.get('email')        || '').trim(),
+      phone:        String(fd.get('phone')        || '').trim(),
+      civil_status: String(fd.get('civil_status') || '').trim(),
+      sex:          String(fd.get('sex')          || '').trim(),
+      dob:          String(fd.get('dob')          || '').trim(),
+      pob:          String(fd.get('pob')          || '').trim(),
+      religion:     String(fd.get('religion')     || '').trim()
     };
     saveDB();
     return true;
@@ -942,24 +978,24 @@ function saveStep(step) {
     const app = currentApp();
     app.education = {
       elem: {
-        school:  String(fd.get('elem_school') || '').trim(),
+        school:  String(fd.get('elem_school')  || '').trim(),
         address: String(fd.get('elem_address') || '').trim(),
-        year:    String(fd.get('elem_year') || '').trim()
+        year:    String(fd.get('elem_year')    || '').trim()
       },
       jhs: {
-        school:  String(fd.get('jhs_school') || '').trim(),
-        address: String(fd.get('jhs_address') || '').trim(),
-        year:    String(fd.get('jhs_year') || '').trim()
+        school:  String(fd.get('jhs_school')   || '').trim(),
+        address: String(fd.get('jhs_address')  || '').trim(),
+        year:    String(fd.get('jhs_year')     || '').trim()
       },
       shs: {
-        school:  String(fd.get('shs_school') || '').trim(),
-        address: String(fd.get('shs_address') || '').trim(),
-        year:    String(fd.get('shs_year') || '').trim()
+        school:  String(fd.get('shs_school')   || '').trim(),
+        address: String(fd.get('shs_address')  || '').trim(),
+        year:    String(fd.get('shs_year')     || '').trim()
       },
       college: {
-        school:  String(fd.get('college_school') || '').trim(),
+        school:  String(fd.get('college_school')  || '').trim(),
         address: String(fd.get('college_address') || '').trim(),
-        year:    String(fd.get('college_year') || '').trim()
+        year:    String(fd.get('college_year')    || '').trim()
       }
     };
     saveDB();
@@ -1005,14 +1041,13 @@ document.addEventListener('change', (e) => {
   const file = input.files && input.files[0];
   if (!file) return;
 
-  // Simple file size guard — 5MB
   if (file.size > 5 * 1024 * 1024) {
     toast('File is too large. Maximum 5MB.', 'error');
     input.value = '';
     return;
   }
 
-  const docId = input.dataset.upload;
+  const docId   = input.dataset.upload;
   const docName = input.dataset.doc;
   const app = currentApp();
   if (!app.documents) app.documents = {};
@@ -1049,7 +1084,7 @@ document.addEventListener('change', (e) => {
   }
 });
 
-/* ============================ RENDER HELPERS ============================ */
+/* ============================ RENDER ALL ============================ */
 
 function renderAll() {
   renderNavbar();
@@ -1072,17 +1107,7 @@ function renderAll() {
       renderDashboard();
       break;
     case 'apply':
-    case 'review':
-      if (state.view === 'review') {
-        const app = currentApp();
-        if (!app.submitted) {
-          state.step = 5;
-        }
-      }
-      if (state.view === 'apply' || state.view === 'review') {
-        if (state.view === 'review') state.step = 5;
-        renderApply();
-      }
+      renderApply();
       break;
     case 'programs':
       state.step = 3;
@@ -1091,6 +1116,11 @@ function renderAll() {
       break;
     case 'documents':
       state.step = 4;
+      state.view = 'apply';
+      renderApply();
+      break;
+    case 'review':
+      state.step = 5;
       state.view = 'apply';
       renderApply();
       break;
