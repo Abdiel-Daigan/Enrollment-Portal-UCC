@@ -5,8 +5,8 @@
    ========================================================================= */
 
 /* ============================ UTILS ============================ */
-const SUPABASE_URL = 'https://xxxxx.supabase.co';       // paste your Project URL
-const SUPABASE_KEY = 'eyJhbGci...';                     // paste your anon key
+const SUPABASE_URL = 'https://oysqcmgdpmmhyaxxvjbl.supabase.co';       // paste your Project URL
+const SUPABASE_KEY = 'sb_publishable_DZyDoTCghbN0VccKWIFMlw_R1a5tlW1';                     // paste your anon key
 
 async function supa(table, options = {}) {
   const { method = 'GET', body, match } = options;
