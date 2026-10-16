@@ -38,7 +38,7 @@ function initials(name) {
     .map((w) => w[0]).join('').toUpperCase();
 }
 /* ---------- API (PHP + MySQL backend) ---------- */
-const API_URL = 'https://bscs3rdyear2026-ucc-portal.infinityfreeapp.com/api.php';
+const API_URL = 'https://bscs3rdyear2026-ucc-portal.infinityfreeapp.com/api2.php';
 
 async function api(action, body = null) {
   const options = {
