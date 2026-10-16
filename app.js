@@ -295,7 +295,7 @@ function loadDB() {
 
 function saveDB() { localStorage.setItem(DB_KEY, JSON.stringify(db)); }
 
-ffunction currentUser() {
+function currentUser() {
   if (!session) return null;
   return {
     id: session.userId,
