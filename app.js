@@ -1091,7 +1091,17 @@ function renderRoleShell() {
   `;
 
   const view = user.role === 'admin' ? ADMIN_VIEWS[state.roleView] : FACULTY_VIEWS[state.roleView];
-  $('#roleContent').innerHTML = view ? view() : '<div class="rp-empty">Page not found.</div>';
+if (!view) {
+  $('#roleContent').innerHTML = '<div class="rp-empty">Page not found.</div>';
+} else {
+  $('#roleContent').innerHTML = '<div class="rp-empty">Loading…</div>';
+  Promise.resolve(view()).then((html) => {
+    $('#roleContent').innerHTML = html;
+  }).catch((err) => {
+    console.error(err);
+    $('#roleContent').innerHTML = '<div class="rp-empty">Failed to load. Check the console.</div>';
+  });
+}
   return true;
 }
 
@@ -1173,25 +1183,39 @@ function adminDashboard() {
   `;
 }
 
-function adminStudents() {
+async function adminStudents() {
   const q = (state.studentSearch || '').toLowerCase();
 
-  const rows = db.users
-    .filter((u) => u.role === 'student')
+  let users = [];
+  let apps = [];
+  try {
+    users = await supa('users', { match: { role: 'student' } });
+    apps  = await supa('applications');
+  } catch (err) {
+    console.error('adminStudents fetch error:', err);
+    return '<div class="rp-empty">Failed to load students. Check the console.</div>';
+  }
+
+  const rows = users
     .map((u) => {
-      const app = db.applications.find((a) => a.user_id === u.id) || {};
-      const name = app.personal && app.personal.first_name
+      const app = apps.find((a) => String(a.user_id) === String(u.id)) || {};
+      const prog = app.program && app.program.preferred
+        ? (typeof app.program === 'string' ? JSON.parse(app.program) : app.program)
+        : null;
+      const fullName = app.personal && app.personal.first_name
         ? `${app.personal.first_name} ${app.personal.middle_name || ''} ${app.personal.last_name || ''}`.trim()
         : u.name;
-      const prog = PROGRAMS.find((p) => String(p.id) === String(app.program && app.program.preferred));
-      return { u, app, name, prog };
+      return { u, app, name: fullName, progId: prog ? prog.preferred : null };
     })
-    .filter((r) => !q || r.name.toLowerCase().includes(q) || r.u.email.toLowerCase().includes(q));
+    .filter((r) => !q ||
+      r.name.toLowerCase().includes(q) ||
+      (r.u.email || '').toLowerCase().includes(q));
 
   return `
     <div class="rp-toolbar">
       <div class="grow">
-        <input class="rp-input" id="adminStudentSearch" placeholder="Search name or email…" value="${esc(state.studentSearch)}">
+        <input class="rp-input" id="adminStudentSearch"
+               placeholder="Search name or email…" value="${esc(state.studentSearch || '')}">
       </div>
       <button class="rp-btn rp-btn-ghost" data-action="adminExportCSV">⤓ Export CSV</button>
     </div>
@@ -1199,20 +1223,24 @@ function adminStudents() {
     <div class="rp-table-wrap">
       <table class="rp-table">
         <thead>
-          <tr><th>Name</th><th>Email</th><th>Program</th><th>Status</th><th>Reference</th><th style="text-align:right">Actions</th></tr>
+          <tr>
+            <th>Name</th><th>Email</th><th>Role</th><th>Status</th><th style="text-align:right">Actions</th>
+          </tr>
         </thead>
         <tbody>
           ${rows.length ? rows.map((r) => `
             <tr>
               <td><strong>${esc(r.name)}</strong></td>
-              <td>${esc(r.u.email)}</td>
-              <td>${r.prog ? `<span class="rp-badge green">${esc(r.prog.code)}</span>` : '<span class="rp-badge grey">—</span>'}</td>
-              <td><span class="rp-badge ${r.app.submitted ? 'green' : 'gold'}">${r.app.submitted ? 'Submitted' : 'In Progress'}</span></td>
-              <td class="rp-hint">${esc(r.app.reference || '—')}</td>
+              <td>${esc(r.u.email || '—')}</td>
+              <td><span class="rp-badge green">${esc(r.u.role || 'student')}</span></td>
+              <td><span class="rp-badge ${r.app.submitted ? 'green' : 'gold'}">
+                ${r.app.submitted ? 'Submitted' : 'In Progress'}
+              </span></td>
               <td style="text-align:right">
-                <button class="rp-btn rp-btn-primary rp-btn-sm" data-action="adminOpenStudent" data-id="${r.u.id}">Manage</button>
+                <button class="rp-btn rp-btn-primary rp-btn-sm"
+                        data-action="adminOpenStudent" data-id="${r.u.id}">Manage</button>
               </td>
-            </tr>`).join('') : '<tr><td colspan="6" class="rp-empty">No students found.</td></tr>'}
+            </tr>`).join('') : '<tr><td colspan="5" class="rp-empty">No students found.</td></tr>'}
         </tbody>
       </table>
     </div>
@@ -1876,13 +1904,19 @@ document.addEventListener('click', (e) => {
     case 'adminOpenStudent': adminOpenStudentModal(id); break;
 
     case 'adminRemoveSubject': {
-      const userId = Number(document.querySelector('#adminSubjectForm [name="user_id"]')?.value || 0);
-      db.student_subjects = db.student_subjects.filter((s) => s.id !== id);
-      saveDB();
+  const userId = Number(document.querySelector('#adminSubjectForm [name="user_id"]')?.value || 0);
+  (async () => {
+    try {
+      await supa('student_subjects', { method: 'DELETE', match: { id } });
       toast('Subject record removed.');
       if (userId) adminOpenStudentModal(userId);
-      break;
+    } catch (err) {
+      console.error(err);
+      toast('Failed to delete subject.', 'error');
     }
+  })();
+  break;
+}
 
     case 'adminNewCourse': adminCourseFormModal(null); break;
     case 'adminEditCourse': adminCourseFormModal(db.courses.find((c) => c.id === id)); break;
@@ -2026,27 +2060,42 @@ document.addEventListener('submit', (e) => {
   }
 
   if (f.id === 'adminSubjectForm') {
-    e.preventDefault();
-    const fd = new FormData(f);
-    const userId = Number(fd.get('user_id'));
-    const courseId = Number(fd.get('course_id'));
-    const grade = String(fd.get('grade') || '').trim();
-    const status = String(fd.get('status'));
+  e.preventDefault();
+  const fd = new FormData(f);
+  const userId = Number(fd.get('user_id'));
+  const courseId = Number(fd.get('course_id'));
+  const grade = String(fd.get('grade') || '').trim();
+  const status = String(fd.get('status'));
 
-    if (db.student_subjects.some((s) => s.user_id === userId && s.course_id === courseId)) {
-      return toast('This subject is already on the student record.', 'error');
+  (async () => {
+    try {
+      const existing = await supa('student_subjects', {
+        match: { user_id: userId, course_id: courseId }
+      });
+      if (existing && existing.length) {
+        return toast('This subject is already on the record.', 'error');
+      }
+
+      await supa('student_subjects', {
+        method: 'POST',
+        body: {
+          user_id: userId,
+          course_id: courseId,
+          grade: grade || null,
+          status,
+          term: 'Recorded by Admin'
+        }
+      });
+
+      toast('Subject record added.');
+      adminOpenStudentModal(userId);
+    } catch (err) {
+      console.error(err);
+      toast('Failed to add subject.', 'error');
     }
-    const nid = db.student_subjects.reduce((m, s) => Math.max(m, s.id), 0) + 1;
-    db.student_subjects.push({
-      id: nid, user_id: userId, course_id: courseId,
-      grade: grade || null, status, term: 'Recorded by Admin',
-      recorded_at: nowISO()
-    });
-    saveDB();
-    toast('Subject record added.');
-    adminOpenStudentModal(userId);
-    return;
-  }
+  })();
+  return;
+}
 });
 
 /* ============================ CHANGE HANDLERS ============================ */
@@ -2190,97 +2239,103 @@ function saveStep(step) {
 
 /* ============================ ADMIN MODALS ============================ */
 
-function adminOpenStudentModal(userId) {
-  const u = db.users.find((x) => x.id === userId);
-  if (!u) return;
-  const app = db.applications.find((a) => a.user_id === userId) || {};
-  const p = app.personal || {};
-  const e = app.education || {};
-  const pr = app.program || {};
-  const prog = PROGRAMS.find((x) => String(x.id) === String(pr.preferred));
-  const fullName = p.first_name ? `${p.first_name} ${p.middle_name || ''} ${p.last_name || ''}`.trim() : u.name;
+async function adminOpenStudentModal(userId) {
+  try {
+    const users = await supa('users', { match: { id: userId } });
+    const u = users && users[0];
+    if (!u) return toast('Student not found.', 'error');
 
-  const docs = app.docType === 'new' ? DOCS_NEW : DOCS_TRANSFEREE;
-  const uploaded = app.documents ? Object.keys(app.documents).length : 0;
+    const apps = await supa('applications', { match: { user_id: userId } });
+    const app = (apps && apps[0]) || {};
 
-  const taken = db.student_subjects.filter((s) => s.user_id === userId);
+    const subjects = await supa('student_subjects', { match: { user_id: userId } }).catch(() => []);
+    const courses = await supa('courses').catch(() => []);
 
-  openRoleModal({
-    title: `Student — ${fullName}`,
-    wide: true,
-    body: `
-      <div class="rp-grid-2" style="margin-bottom:18px">
-        <div>
-          <h4 style="font-size:12.5px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:8px">Personal</h4>
-          <div style="display:grid;gap:6px;font-size:13.4px">
-            <div><strong>Name:</strong> ${esc(fullName)}</div>
-            <div><strong>Email:</strong> ${esc(p.email || u.email)}</div>
-            <div><strong>Phone:</strong> ${esc(p.phone || '—')}</div>
-            <div><strong>Status:</strong> ${esc(p.civil_status || '—')} · ${esc(p.sex || '—')}</div>
-            <div><strong>DOB:</strong> ${esc(p.dob || '—')}</div>
-            <div><strong>Address:</strong> ${esc(p.address || '—')} ${esc(p.region || '')} ${esc(p.zip || '')}</div>
+    const p = app.personal || {};
+    const e = app.education || {};
+    let pr = app.program || {};
+    if (typeof pr === 'string') { try { pr = JSON.parse(pr); } catch (err) {} }
+
+    const fullName = p.first_name
+      ? `${p.first_name} ${p.middle_name || ''} ${p.last_name || ''}`.trim()
+      : u.name;
+
+    const subjectRows = subjects.map((s) => {
+      const c = courses.find((x) => String(x.id) === String(s.course_id));
+      return `
+        <tr>
+          <td><strong>${esc(c ? c.code : '—')}</strong> ${esc(c ? c.title : '')}</td>
+          <td>${esc(s.grade || '—')}</td>
+          <td class="rp-hint">${esc(s.term || '—')}</td>
+          <td><span class="rp-badge ${s.status === 'Passed' ? 'green' : (s.status === 'Failed' ? 'red' : 'gold')}">${esc(s.status)}</span></td>
+          <td style="text-align:right">
+            <button class="rp-btn rp-btn-danger rp-btn-sm" data-action="adminRemoveSubject" data-id="${s.id}">Delete</button>
+          </td>
+        </tr>`;
+    }).join('');
+
+    openRoleModal({
+      title: `Student — ${fullName}`,
+      wide: true,
+      body: `
+        <div class="rp-grid-2" style="margin-bottom:18px">
+          <div>
+            <h4 style="font-size:12.5px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:8px">Personal</h4>
+            <div style="display:grid;gap:6px;font-size:13.4px">
+              <div><strong>Name:</strong> ${esc(fullName)}</div>
+              <div><strong>Email:</strong> ${esc(p.email || u.email)}</div>
+              <div><strong>Phone:</strong> ${esc(p.phone || '—')}</div>
+              <div><strong>Address:</strong> ${esc(p.address || '—')}</div>
+            </div>
+          </div>
+          <div>
+            <h4 style="font-size:12.5px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:8px">Academic</h4>
+            <div style="display:grid;gap:6px;font-size:13.4px">
+              <div><strong>Program ID:</strong> ${esc(pr.preferred || '—')}</div>
+              <div><strong>Application:</strong> ${app.submitted ? '<span class="rp-badge green">Submitted</span>' : '<span class="rp-badge gold">In Progress</span>'}</div>
+              <div><strong>Reference:</strong> ${esc(app.reference || '—')}</div>
+            </div>
           </div>
         </div>
-        <div>
-          <h4 style="font-size:12.5px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:8px">Academic</h4>
-          <div style="display:grid;gap:6px;font-size:13.4px">
-            <div><strong>Program:</strong> ${prog ? esc(prog.code + ' — ' + prog.name) : '—'}</div>
-            <div><strong>SHS:</strong> ${esc((e.shs && e.shs.school) || '—')}</div>
-            <div><strong>Documents:</strong> ${uploaded} of ${docs ? docs.length : 0}</div>
-            <div><strong>Application:</strong> ${app.submitted ? '<span class="rp-badge green">Submitted</span>' : '<span class="rp-badge gold">In Progress</span>'}</div>
-            <div><strong>Reference:</strong> ${esc(app.reference || '—')}</div>
+
+        <h4 style="font-size:12.5px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin:16px 0 8px">Subjects Taken</h4>
+        ${subjectRows ? `
+          <div class="rp-table-wrap">
+            <table class="rp-table">
+              <thead><tr><th>Course</th><th>Grade</th><th>Term</th><th>Status</th><th></th></tr></thead>
+              <tbody>${subjectRows}</tbody>
+            </table>
+          </div>` : '<div class="rp-empty" style="padding:14px">No subjects recorded.</div>'}
+
+        <h4 style="font-size:12.5px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin:18px 0 8px">Record Completed Subject</h4>
+        <form id="adminSubjectForm" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+          <input type="hidden" name="user_id" value="${userId}">
+          <div style="flex:2;min-width:200px">
+            <label style="font-size:12.4px;font-weight:600;display:block;margin-bottom:5px">Course</label>
+            <select class="rp-input" name="course_id" required>
+              ${courses.map((c) => `<option value="${c.id}">${esc(c.code)} — ${esc(c.title)}</option>`).join('')}
+            </select>
           </div>
-        </div>
-      </div>
-
-      <h4 style="font-size:12.5px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin:16px 0 8px">Subjects Taken</h4>
-      ${taken.length ? `
-        <div class="rp-table-wrap">
-          <table class="rp-table">
-            <thead><tr><th>Course</th><th>Grade</th><th>Term</th><th>Status</th><th></th></tr></thead>
-            <tbody>
-              ${taken.map((s) => {
-                const c = db.courses.find((x) => x.id === s.course_id);
-                return `<tr>
-                  <td><strong>${esc(c ? c.code : '—')}</strong> ${esc(c ? c.title : '')}</td>
-                  <td>${esc(s.grade || '—')}</td>
-                  <td class="rp-hint">${esc(s.term || '—')}</td>
-                  <td><span class="rp-badge ${s.status === 'Passed' ? 'green' : (s.status === 'Failed' ? 'red' : 'gold')}">${esc(s.status)}</span></td>
-                  <td style="text-align:right">
-                    <button class="rp-btn rp-btn-danger rp-btn-sm" data-action="adminRemoveSubject" data-id="${s.id}">Delete</button>
-                  </td>
-                </tr>`;
-              }).join('')}
-            </tbody>
-          </table>
-        </div>` : '<div class="rp-empty" style="padding:14px">No subjects recorded.</div>'}
-
-      <h4 style="font-size:12.5px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin:18px 0 8px">Record Completed Subject</h4>
-      <form id="adminSubjectForm" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
-        <input type="hidden" name="user_id" value="${userId}">
-        <div style="flex:2;min-width:200px">
-          <label style="font-size:12.4px;font-weight:600;display:block;margin-bottom:5px">Course</label>
-          <select class="rp-input" name="course_id" required>
-            ${db.courses.map((c) => `<option value="${c.id}">${esc(c.code)} — ${esc(c.title)}</option>`).join('')}
-          </select>
-        </div>
-        <div style="width:100px">
-          <label style="font-size:12.4px;font-weight:600;display:block;margin-bottom:5px">Grade</label>
-          <input class="rp-input" name="grade" placeholder="1.75">
-        </div>
-        <div style="width:140px">
-          <label style="font-size:12.4px;font-weight:600;display:block;margin-bottom:5px">Status</label>
-          <select class="rp-input" name="status">
-            <option>Passed</option><option>Failed</option><option>In Progress</option>
-          </select>
-        </div>
-        <button class="rp-btn rp-btn-primary" type="submit">Add</button>
-      </form>
-    `,
-    footer: `<button class="rp-btn rp-btn-ghost" data-action="closeRoleModal">Close</button>`
-  });
+          <div style="width:100px">
+            <label style="font-size:12.4px;font-weight:600;display:block;margin-bottom:5px">Grade</label>
+            <input class="rp-input" name="grade" placeholder="1.75">
+          </div>
+          <div style="width:140px">
+            <label style="font-size:12.4px;font-weight:600;display:block;margin-bottom:5px">Status</label>
+            <select class="rp-input" name="status">
+              <option>Passed</option><option>Failed</option><option>In Progress</option>
+            </select>
+          </div>
+          <button class="rp-btn rp-btn-primary" type="submit">Add</button>
+        </form>
+      `,
+      footer: `<button class="rp-btn rp-btn-ghost" data-action="closeRoleModal">Close</button>`
+    });
+  } catch (err) {
+    console.error(err);
+    toast('Failed to load student.', 'error');
+  }
 }
-
 function adminCourseFormModal(course) {
   const isEdit = !!course;
   openRoleModal({
