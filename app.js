@@ -998,7 +998,6 @@ const ADMIN_VIEWS = {
 
 const FACULTY_VIEWS = {
   dashboard: facultyDashboard,
-  classes:   facultyClasses,
   progress:  facultyProgress
 };
 
@@ -1038,8 +1037,7 @@ function renderRoleShell() {
     ],
     faculty: [
       { key: 'dashboard', label: 'Dashboard',        icon: '🏠' },
-      { key: 'classes',   label: 'My Classes',       icon: '👥' },
-      { key: 'progress',  label: 'Student Progress', icon: '✅' }
+      { key: 'progress',  label: 'Check Students',   icon: '🔍' }
     ]
   };
 
@@ -1520,198 +1518,122 @@ echo json_encode(['error' =&gt; 'Unknown action']);</pre>
 
 /* ============================ FACULTY VIEWS ============================ */
 
-function facultyDashboard() {
-  const user = currentUser();
-  const mySections = db.sections.filter((s) => s.faculty_id === user.id);
-  const uniqueStudents = new Set();
-  mySections.forEach((sec) => {
-    db.enrollments
-      .filter((e) => e.section_id === sec.id && e.status !== 'Dropped')
-      .forEach((e) => uniqueStudents.add(e.user_id));
-  });
-  const totalEnroll = db.enrollments.filter(
-    (e) => mySections.some((sec) => sec.id === e.section_id) && e.status !== 'Dropped'
-  ).length;
+async function facultyDashboard() {
+  let students = [];
+  let apps = [];
+  try {
+    students = await supa('users', { match: { role: 'student' } });
+    apps = await supa('applications');
+  } catch (err) {
+    console.error(err);
+  }
+
+  const submitted = apps.filter(a => a.submitted).length;
+  const pending = students.length - submitted;
 
   return `
     <div class="rp-grid-4">
-      ${rpStat(mySections.length, 'Assigned Sections', 'Current term', '🏫')}
-      ${rpStat(uniqueStudents.size, 'Unique Students', 'Across all sections', '👥', true)}
-      ${rpStat(totalEnroll, 'Total Enrollments', 'In your sections', '📝')}
-      ${rpStat(mySections.filter((s) => s.status === 'Full').length, 'Full Sections', 'At capacity', '🔒', true)}
+      ${rpStat(students.length, 'Total Students', 'In the system', '👥')}
+      ${rpStat(submitted, 'Applications Submitted', 'Ready for evaluation', '✅', true)}
+      ${rpStat(pending, 'In Progress', 'Still filling out forms', '⏳')}
     </div>
 
     <div class="rp-card">
-      <div class="rp-card-head"><h3>My Sections</h3><span class="rp-hint">Click to view class list</span></div>
-      ${mySections.length ? `
-        <div class="rp-grid-3">
-          ${mySections.map((sec) => {
-            const c = db.courses.find((x) => x.id === sec.course_id);
-            const count = db.enrollments.filter((e) => e.section_id === sec.id && e.status !== 'Dropped').length;
-            const pct = sec.capacity ? Math.round((count / sec.capacity) * 100) : 0;
-            return `
-              <div class="rp-card" style="box-shadow:none;border:1px solid var(--line)">
-                <div style="display:flex;justify-content:space-between;gap:8px">
-                  <div>
-                    <div class="rp-hint" style="font-weight:700;color:var(--gold-600)">${esc(c ? c.code : '—')}</div>
-                    <div style="font-weight:800;color:var(--mint-800);margin-top:2px">${esc(c ? c.title : '—')}</div>
-                  </div>
-                  <span class="rp-badge ${sec.status === 'Full' ? 'red' : 'green'}">${esc(sec.status || 'Open')}</span>
-                </div>
-                <div style="margin-top:12px;font-size:12.5px;color:var(--muted);display:grid;gap:5px">
-                  <div>🕒 ${esc(sec.schedule || 'TBA')}</div>
-                  <div>📍 Room ${esc(sec.room || 'TBA')}</div>
-                  <div>👥 ${count} / ${sec.capacity || 30} students</div>
-                </div>
-                <div class="rp-progress" style="margin-top:10px"><i style="width:${pct}%"></i></div>
-                <button class="rp-btn rp-btn-primary rp-btn-sm"
-                        style="margin-top:12px;width:100%;justify-content:center"
-                        data-action="facultyOpenSection" data-id="${sec.id}">View Class List</button>
-              </div>`;
-          }).join('')}
-        </div>` : '<div class="rp-empty"><span class="big">🏫</span>No sections assigned yet.</div>'}
-    </div>
-  `;
-}
-
-function facultyClasses() {
-  const user = currentUser();
-  const mySections = db.sections.filter((s) => s.faculty_id === user.id);
-
-  if (!mySections.length) {
-    return `<div class="rp-card rp-empty"><span class="big">📭</span>No sections assigned.</div>`;
-  }
-
-  const activeId = Number(state.facultySection) || mySections[0].id;
-  const active = mySections.find((s) => s.id === activeId) || mySections[0];
-  const course = db.courses.find((x) => x.id === active.course_id);
-
-  const roster = db.enrollments
-    .filter((e) => e.section_id === active.id && e.status !== 'Dropped')
-    .map((e) => {
-      const u = db.users.find((x) => x.id === e.user_id);
-      const app = db.applications.find((a) => a.user_id === e.user_id) || {};
-      const prog = PROGRAMS.find((p) => String(p.id) === String(app.program && app.program.preferred));
-      return { e, u, app, prog };
-    })
-    .filter((r) => r.u);
-
-  return `
-    <div class="rp-toolbar">
-      <div class="grow">
-        <select class="rp-input" data-change="facultySectionSelect">
-          ${mySections.map((s) => {
-            const c = db.courses.find((x) => x.id === s.course_id);
-            return `<option value="${s.id}" ${s.id === active.id ? 'selected' : ''}>
-              ${esc(c ? c.code + ' — ' + c.title : 'Section')} (Sec ${esc(s.section_name || 'A')})
-            </option>`;
-          }).join('')}
-        </select>
-      </div>
-      <span class="rp-badge green">${roster.length} enrolled</span>
-    </div>
-
-    <div class="rp-card" style="margin-bottom:18px">
       <div class="rp-card-head">
-        <div>
-          <h3>${esc(course ? course.code + ' — ' + course.title : '—')}</h3>
-          <div class="rp-hint">
-            Section ${esc(active.section_name || 'A')} · ${esc(active.schedule || 'TBA')} ·
-            Room ${esc(active.room || 'TBA')} · ${course ? course.units : 0} units
-          </div>
-        </div>
-        <span class="rp-badge ${active.status === 'Full' ? 'red' : 'green'}">${esc(active.status || 'Open')}</span>
+        <h3>College Department Overview</h3>
       </div>
-
-      <div class="rp-table-wrap">
-        <table class="rp-table">
-          <thead>
-            <tr><th>#</th><th>Student</th><th>Email</th><th>Program</th><th>Status</th><th style="text-align:right">Progress</th></tr>
-          </thead>
-          <tbody>
-            ${roster.length ? roster.map((r, i) => `
-              <tr>
-                <td>${i + 1}</td>
-                <td><strong>${esc(r.u.name)}</strong></td>
-                <td>${esc(r.u.email)}</td>
-                <td>${r.prog ? `<span class="rp-badge green">${esc(r.prog.code)}</span>` : '—'}</td>
-                <td><span class="rp-badge green">${esc(r.e.status || 'Enrolled')}</span></td>
-                <td style="text-align:right">
-                  <button class="rp-btn rp-btn-ghost rp-btn-sm"
-                          data-action="facultyCheckStudent" data-id="${r.u.id}">Check Subjects</button>
-                </td>
-              </tr>`).join('') : '<tr><td colspan="6" class="rp-empty">No students enrolled yet.</td></tr>'}
-          </tbody>
-        </table>
+      <div class="rp-notice mint">
+        <span>🎓</span>
+        <span>As the College Department, your role is to evaluate student records. 
+        Go to <strong>Check Students</strong> to see exactly which subjects a student has passed and what they are eligible to take next.</span>
       </div>
+      <button class="rp-btn rp-btn-primary" data-role-nav="progress" style="margin-top:10px">
+        Go to Student Evaluation →
+      </button>
     </div>
   `;
 }
 
-function facultyProgress() {
-  const user = currentUser();
-  const mySections = db.sections.filter((s) => s.faculty_id === user.id);
-  const myStudentIds = new Set();
-  mySections.forEach((sec) => {
-    db.enrollments
-      .filter((e) => e.section_id === sec.id && e.status !== 'Dropped')
-      .forEach((e) => myStudentIds.add(e.user_id));
-  });
+async function facultyProgress() {
+  let students = [];
+  let allCourses = [];
+  let allSubjectsTaken = [];
 
-  const allStudents = db.users.filter((u) => u.role === 'student');
-  const list = allStudents.filter((u) => myStudentIds.has(u.id));
-
-  if (!list.length) {
-    return `<div class="rp-card rp-empty"><span class="big">🎓</span>No students in your sections yet.</div>`;
+  try {
+    students = await supa('users', { match: { role: 'student' } });
+    allCourses = await supa('courses');
+    allSubjectsTaken = await supa('student_subjects');
+  } catch (err) {
+    console.error(err);
+    return '<div class="rp-empty">Failed to load data.</div>';
   }
 
-  const selectedId = Number(state.facultyStudent) || list[0].id;
-  const student = list.find((u) => u.id === selectedId) || list[0];
+  if (!students.length) {
+    return `<div class="rp-card rp-empty"><span class="big">🎓</span>No students registered yet.</div>`;
+  }
 
-  const app = db.applications.find((a) => a.user_id === student.id) || {};
-  const prog = PROGRAMS.find((p) => String(p.id) === String(app.program && app.program.preferred));
+  const selectedId = Number(state.facultyStudent) || students[0].id;
+  const student = students.find((u) => u.id === selectedId) || students[0];
 
-  const taken = db.student_subjects.filter((s) => s.user_id === student.id);
-  const takenIds = taken.map((t) => t.course_id);
-  const passedIds = taken.filter((t) => t.status === 'Passed').map((t) => t.course_id);
+  // Get the student's application to find their program
+  let appRows = await supa('applications', { match: { user_id: student.id } }).catch(() => []);
+  const app = appRows && appRows[0];
+  let progId = null;
+  if (app && app.program) {
+    let pr = app.program;
+    if (typeof pr === 'string') { try { pr = JSON.parse(pr); } catch (e) {} }
+    progId = pr.preferred;
+  }
 
-  const programCourses = prog
-    ? db.courses.filter((c) => String(c.program_id) === String(prog.id))
-    : db.courses;
+  // Filter courses for this student's program
+  const programCourses = progId 
+    ? allCourses.filter(c => String(c.program_id) === String(progId))
+    : allCourses;
 
-  const canTake = programCourses.filter((c) => !takenIds.includes(c.id) && !passedIds.includes(c.id));
+  // Get subjects this specific student has taken
+  const taken = allSubjectsTaken.filter(s => String(s.user_id) === String(student.id));
+  const takenIds = taken.map(t => t.course_id);
+  const passedIds = taken.filter(t => t.status === 'Passed').map(t => t.course_id);
+
+  // Determine what they can still take
+  const canTake = programCourses.filter(c => 
+    !takenIds.includes(c.id) && !passedIds.includes(c.id)
+  );
 
   return `
     <div class="rp-toolbar">
       <div class="grow">
+        <label style="font-size:12.5px;font-weight:600;color:var(--muted);margin-bottom:5px;display:block">Select Student to Evaluate</label>
         <select class="rp-input" data-change="facultyStudentSelect">
-          ${list.map((u) => `<option value="${u.id}" ${u.id === student.id ? 'selected' : ''}>${esc(u.name)} — ${esc(u.email)}</option>`).join('')}
+          ${students.map((u) => `<option value="${u.id}" ${u.id === student.id ? 'selected' : ''}>${esc(u.name)} (${esc(u.email)})</option>`).join('')}
         </select>
       </div>
     </div>
 
     <div class="rp-grid-4" style="margin-bottom:20px">
-      ${rpStat(taken.length, 'Subjects Taken', 'On record', '📗')}
+      ${rpStat(taken.length, 'Subjects Taken', 'On their record', '📗')}
       ${rpStat(passedIds.length, 'Subjects Passed', 'Cleared prerequisites', '✅', true)}
       ${rpStat(canTake.length, 'Available to Take', 'Not yet taken', '🎯')}
-      ${rpStat(prog ? prog.code : '—', 'Program', prog ? prog.name : '—', '🎓', true)}
+      ${rpStat(programCourses.length, 'Total Program Subjects', 'Required for graduation', '🎓', true)}
     </div>
 
     <div class="rp-card" style="margin-bottom:18px">
       <div class="rp-card-head">
         <div>
           <h3>${esc(student.name)}</h3>
-          <div class="rp-hint">${esc(student.email)} · ${prog ? esc(prog.name) : 'No program'}</div>
+          <div class="rp-hint">${esc(student.email)} · Program ID: ${esc(progId || 'Not selected')}</div>
         </div>
-        <span class="rp-badge ${app.submitted ? 'green' : 'gold'}">${app.submitted ? 'Submitted' : 'In Progress'}</span>
+        <span class="rp-badge ${app && app.submitted ? 'green' : 'gold'}">
+          ${app && app.submitted ? 'Application Submitted' : 'In Progress'}
+        </span>
       </div>
     </div>
 
     <div class="rp-grid-2">
       <div class="rp-card">
-        <div class="rp-card-head"><h3>✅ Subjects Taken</h3></div>
+        <div class="rp-card-head"><h3>✅ Subjects Taken / Passed</h3></div>
         ${taken.length ? taken.map((t) => {
-          const c = db.courses.find((x) => x.id === t.course_id);
+          const c = allCourses.find((x) => x.id === t.course_id);
           return `
             <div style="display:flex;justify-content:space-between;gap:10px;padding:9px 0;border-bottom:1px solid #eef7f3">
               <div>
@@ -1723,7 +1645,7 @@ function facultyProgress() {
                 <span class="rp-badge ${t.status === 'Passed' ? 'green' : 'red'}">${esc(t.status)}</span>
               </div>
             </div>`;
-        }).join('') : '<div class="rp-empty" style="padding:16px">No subjects on record.</div>'}
+        }).join('') : '<div class="rp-empty" style="padding:16px">No subjects recorded yet.</div>'}
       </div>
 
       <div class="rp-card">
@@ -1987,11 +1909,6 @@ document.addEventListener('click', (e) => {
     }
 
     /* ---------- Faculty actions ---------- */
-    case 'facultyOpenSection':
-      state.facultySection = id;
-      state.roleView = 'classes';
-      renderRoleShell();
-      break;
 
     case 'facultyCheckStudent':
       state.facultyStudent = id;
