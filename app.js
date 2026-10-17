@@ -396,6 +396,51 @@ async function doRegister(form) {
   }
 }
 
+async function finalizeEnrollment(app) {
+  toast('Submitting application...', 'info');
+  
+  app.certified = true;
+  app.submitted = true;
+  app.submittedAt = nowISO();
+  app.reference = 'UCC-' + Date.now().toString().slice(-8);
+  saveDB();
+
+  const payload = {
+    user_id: session.userId,
+    personal: app.personal,
+    education: app.education,
+    program: app.program,
+    documents: app.documents,
+    doc_type: app.docType,
+    submitted: true,
+    submitted_at: app.submittedAt,
+    reference: app.reference,
+    status: 'Pending Review' // NEW FIELD: Admin will change this
+  };
+
+  try {
+    const existing = await supa('applications', { match: { user_id: session.userId } });
+    if (existing && existing.length) {
+      await supa('applications', {
+        method: 'PATCH',
+        match: { user_id: session.userId },
+        body: payload
+      });
+    } else {
+      await supa('applications', { method: 'POST', body: payload });
+    }
+    
+    // Now redirect them to Browse Courses to pick their subjects!
+    toast('Application submitted! Now pick your classes.', 'success');
+    state.view = 'browse';
+    renderAll();
+    
+  } catch (err) {
+    console.error(err);
+    toast('Failed to save application. Please try again.', 'error');
+  }
+}
+
 function doLogout() {
   session = null;
   localStorage.removeItem(SESSION_KEY);
@@ -577,39 +622,104 @@ function renderStudentDashboard() {
   `;
 }
 
+async function renderSchedule() {
+  const user = currentUser();
+  const myEnrollments = await supa('enrollments', { match: { user_id: user.id } }).catch(() => []);
+  
+  if (!myEnrollments.length) {
+    return `<div class="progress-card rp-empty">
+      <span class="big">🗓️</span>
+      <h3>No Schedule Yet</h3>
+      <p>You haven't enrolled in any subjects yet.</p>
+      <button class="btn btn-primary" style="margin-top:20px" data-nav="browse">Browse Courses</button>
+    </div>`;
+  }
+
+  const sections = await supa('sections');
+  const courses = await supa('courses');
+  
+  const mySections = myEnrollments.map(e => {
+    const sec = sections.find(s => s.id === e.section_id);
+    const c = sec ? courses.find(x => x.id === sec.course_id) : null;
+    return { sec, c };
+  }).filter(x => x.sec && x.c);
+
+  return `
+    <div class="progress-card">
+      <h3>My Enrolled Subjects</h3>
+      <div class="rp-table-wrap">
+        <table class="rp-table">
+          <thead><tr><th>Code</th><th>Title</th><th>Section</th><th>Schedule</th><th>Room</th><th></th></tr></thead>
+          <tbody>
+            ${mySections.map(item => `
+              <tr>
+                <td><strong>${esc(item.c.code)}</strong></td>
+                <td>${esc(item.c.title)}</td>
+                <td>${esc(item.sec.section_name)}</td>
+                <td>${esc(item.sec.schedule)}</td>
+                <td>${esc(item.sec.room)}</td>
+                <td style="text-align:right">
+                  <button class="btn btn-ghost btn-sm" data-action="dropEnrollment" data-id="${item.sec.id}">Drop</button>
+                </td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
 async function renderBrowseCourses() {
   const user = currentUser();
   if (!user) return '<div class="rp-empty">Not signed in.</div>';
 
-  // Get the student's application → their chosen program
+  // 1. Get the application
   const appRows = await supa('applications', { match: { user_id: user.id } }).catch(() => []);
   const app = appRows && appRows[0];
-  const programId = app && app.program && app.program.preferred;
 
-  if (!programId) {
+  if (!app) {
     return `
       <div class="progress-card">
         <h3>Browse Courses</h3>
         <div class="rp-notice gold">
-          <span>⚠️</span>
-          <span>Please complete the <strong>Program Choice</strong> step in your application first.
-          We can't show courses until we know your program.</span>
+          <span>⚠️</span><span>You have not started an application yet.</span>
         </div>
-        <button class="btn btn-primary" data-nav="apply">Go to Application →</button>
+        <button class="btn btn-primary" data-nav="apply">Start Application →</button>
       </div>
     `;
   }
 
-  // Load courses for the program and all sections
-  const [courses, sections, myEnrollments] = await Promise.all([
-    supa('courses', { match: { program_id: Number(programId) } }).catch(() => []),
-    supa('sections').catch(() => []),
-    supa('enrollments', { match: { user_id: user.id } }).catch(() => [])
+  // 2. Robustly parse the program ID
+  let progId = null;
+  let pr = app.program;
+  if (typeof pr === 'string') { try { pr = JSON.parse(pr); } catch (e) {} }
+  if (pr && pr.preferred) progId = pr.preferred;
+
+  if (!progId) {
+    return `
+      <div class="progress-card">
+        <h3>Browse Courses</h3>
+        <div class="rp-notice gold">
+          <span>⚠️</span><span>Please complete the <strong>Program Choice</strong> step in your application first.</span>
+        </div>
+        <button class="btn btn-primary" data-action="gotoStep" data-step="3">Go to Program Choice →</button>
+      </div>
+    `;
+  }
+
+  // 3. Check if they are already officially enrolled
+  const myEnrollments = await supa('enrollments', { match: { user_id: user.id } }).catch(() => []);
+  const isEnrolled = myEnrollments.length > 0 || (app.status === 'Enrolled');
+
+  // 4. Load courses and sections
+  const [courses, sections] = await Promise.all([
+    supa('courses', { match: { program_id: Number(progId) } }).catch(() => []),
+    supa('sections').catch(() => [])
   ]);
 
   const mySectionIds = new Set(myEnrollments.map((e) => String(e.section_id)));
 
-  // Group sections by course
   const courseCards = courses.map((c) => {
     const courseSections = sections.filter((s) => String(s.course_id) === String(c.id));
     if (!courseSections.length) return '';
@@ -622,9 +732,10 @@ async function renderBrowseCourses() {
         btn = '<button class="btn btn-ghost btn-sm" disabled>✓ Enrolled</button>';
       } else if (full) {
         btn = '<button class="btn btn-ghost btn-sm" disabled>Section Full</button>';
+      } else if (isEnrolled) {
+        btn = '<button class="btn btn-ghost btn-sm" disabled>View Schedule to change</button>';
       } else {
-        btn = `<button class="btn btn-primary btn-sm"
-                        data-enroll-section="${sec.id}">Enroll →</button>`;
+        btn = `<button class="btn btn-primary btn-sm" data-enroll-section="${sec.id}">Enroll →</button>`;
       }
       return `
         <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;
@@ -664,7 +775,7 @@ async function renderBrowseCourses() {
       <div class="banner-text" style="padding:28px 34px">
         <h2 style="font-size:26px">Browse Courses</h2>
         <div class="banner-sub" style="font-size:16px;margin-bottom:6px">Enroll in Available Sections</div>
-        <p>Choose a section for each course in your program. You can drop them later from your schedule.</p>
+        <p>Choose a section for each course in your program.</p>
       </div>
       <div class="banner-img"></div>
     </div>
@@ -1323,39 +1434,69 @@ function adminSections() {
   `;
 }
 
-function adminEnrollments() {
-  const list = db.enrollments;
+async function adminEnrollments() {
+  let apps = [];
+  let students = [];
+  let enrollments = [];
+
+  try {
+    apps = await supa('applications');
+    students = await supa('users', { match: { role: 'student' } });
+    enrollments = await supa('enrollments');
+  } catch (err) { console.error(err); }
+
+  // Only show submitted apps
+  const submittedApps = apps.filter(a => a.submitted);
+
   return `
     <div class="rp-notice mint">
       <span>ℹ️</span>
-      <span>Enrollments are created when a student completes the enrollment process. Remove them here if needed.</span>
+      <span>Approve submitted applications to officially enroll students. Once approved, they will appear in your enrollment records.</span>
     </div>
+
     <div class="rp-table-wrap">
       <table class="rp-table">
-        <thead><tr><th>Student</th><th>Course</th><th>Section</th><th>Date</th><th>Status</th><th style="text-align:right">Actions</th></tr></thead>
+        <thead>
+          <tr><th>Student</th><th>Reference</th><th>Status</th><th>Enrolled Subjects</th><th style="text-align:right">Actions</th></tr>
+        </thead>
         <tbody>
-          ${list.length ? list.map((e) => {
-            const u = db.users.find((x) => x.id === e.user_id);
-            const sec = db.sections.find((x) => x.id === e.section_id);
-            const c = sec && db.courses.find((x) => x.id === sec.course_id);
+          ${submittedApps.length ? submittedApps.map((app) => {
+            const u = students.find(x => x.id === app.user_id) || { name: 'Unknown', email: '' };
+            const myEnr = enrollments.filter(e => e.user_id === app.user_id);
+            const isApproved = app.status === 'Enrolled';
+            
             return `
               <tr>
-                <td>${esc(u ? u.name : '—')}</td>
-                <td>${esc(c ? c.code : '—')} <span class="rp-hint">${esc(c ? c.title : '')}</span></td>
-                <td>${esc(sec ? sec.section_name : '—')}</td>
-                <td>${esc(e.enrollment_date || '—')}</td>
-                <td><span class="rp-badge green">${esc(e.status || 'Enrolled')}</span></td>
-                <td style="text-align:right">
-                  <button class="rp-btn rp-btn-danger rp-btn-sm" data-action="adminRemoveEnrollment" data-id="${e.id}">Remove</button>
+                <td>
+                  <strong>${esc(u.name)}</strong>
+                  <div class="rp-hint">${esc(u.email)}</div>
+                </td>
+                <td>${esc(app.reference || '—')}</td>
+                <td>
+                  <span class="rp-badge ${isApproved ? 'green' : 'gold'}">
+                    ${esc(app.status || 'Pending Review')}
+                  </span>
+                </td>
+                <td>${myEnr.length} subject(s)</td>
+                <td style="text-align:right;white-space:nowrap">
+                  ${!isApproved ? `
+                    <button class="rp-btn rp-btn-primary rp-btn-sm" 
+                            data-action="adminApproveEnrollment" data-id="${app.user_id}">
+                      Approve Enrollment
+                    </button>
+                  ` : `
+                    <button class="rp-btn rp-btn-ghost rp-btn-sm" disabled>
+                      ✓ Officially Enrolled
+                    </button>
+                  `}
                 </td>
               </tr>`;
-          }).join('') : '<tr><td colspan="6" class="rp-empty">No enrollments yet.</td></tr>'}
+          }).join('') : '<tr><td colspan="5" class="rp-empty">No submitted applications to review.</td></tr>'}
         </tbody>
       </table>
     </div>
   `;
 }
-
 function adminReports() {
   const totalStudents = db.users.filter((u) => u.role === 'student').length;
   const submitted = db.applications.filter((a) => a.submitted).length;
@@ -1788,33 +1929,30 @@ document.addEventListener('click', (e) => {
       break;
     }
 
-    case 'submitApplication': {
-  const app = currentApp();
-  const chk = $('#certifyCheck');
-  if (!chk || !chk.checked) return toast('Please certify that your information is correct.', 'error');
-  app.certified = true;
-  app.submitted = true;
-  app.submittedAt = nowISO();
-  app.reference = 'UCC-' + Date.now().toString().slice(-8);
-  saveDB();
+        case 'submitApplication': {
+      const app = currentApp();
+      const chk = $('#certifyCheck');
+      if (!chk || !chk.checked) return toast('Please certify that your information is correct.', 'error');
+      
+      // We'll handle the actual save inside a new async function
+      finalizeEnrollment(app);
+      break;
+    }
 
-  // Save to MySQL in the background
-  api('save_application', {
-    user_id: session.userId,
-    personal: app.personal,
-    education: app.education,
-    program: app.program,
-    documents: app.documents,
-    doc_type: app.docType,
-    submitted: true,
-    submitted_at: app.submittedAt,
-    reference: app.reference
-  }).catch(() => {});
-
-  toast('Application submitted successfully!');
-  renderAll();
-  break;
-}
+       case 'dropEnrollment': {
+      const sectionId = Number(btn.dataset.id);
+      (async () => {
+        try {
+          await supa('enrollments', { method: 'DELETE', match: { user_id: session.userId, section_id: sectionId } });
+          toast('Subject dropped.');
+          renderAll();
+        } catch (err) {
+          console.error(err);
+          toast('Failed to drop.', 'error');
+        }
+      })();
+      break;
+    }
 
     case 'viewApplication':
       state.view = 'apply';
@@ -1823,6 +1961,25 @@ document.addEventListener('click', (e) => {
       break;
 
     /* ---------- Admin actions ---------- */
+        case 'adminApproveEnrollment': {
+      const userId = Number(btn.dataset.id);
+      (async () => {
+        try {
+          // Update the application status
+          await supa('applications', {
+            method: 'PATCH',
+            match: { user_id: userId },
+            body: { status: 'Enrolled' }
+          });
+          toast('Student officially enrolled!');
+          renderRoleShell();
+        } catch (err) {
+          console.error(err);
+          toast('Failed to approve.', 'error');
+        }
+      })();
+      break;
+    }
     case 'adminOpenStudent': adminOpenStudentModal(id); break;
 
     case 'adminRemoveSubject': {
@@ -2411,6 +2568,10 @@ function renderAll() {
     pageWrap.innerHTML = html;
   });
   break;
+        case 'schedule':
+      pageWrap.innerHTML = '<div class="progress-card">Loading schedule...</div>';
+      renderSchedule().then(html => { pageWrap.innerHTML = html; });
+      break;
     case 'dashboard':
       pageWrap.innerHTML = renderStudentDashboard();
       break;
