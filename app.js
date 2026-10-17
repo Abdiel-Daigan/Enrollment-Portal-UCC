@@ -10,23 +10,47 @@ const SUPABASE_KEY = 'sb_publishable_DZyDoTCghbN0VccKWIFMlw_R1a5tlW1';          
 
 async function supa(table, options = {}) {
   const { method = 'GET', body, match } = options;
-  let url = `${SUPABASE_URL}/rest/v1/${table}`;
+  let url = SUPABASE_URL + '/rest/v1/' + table;
+
+  const params = [];
   if (match) {
-    const q = Object.entries(match).map(([k, v]) => `${k}=eq.${encodeURIComponent(v)}`).join('&');
-    url += '?' + q;
+    Object.entries(match).forEach(([k, v]) => {
+      params.push(k + '=eq.' + encodeURIComponent(v));
+    });
   }
+  if (params.length) url += '?' + params.join('&');
+
+  const headers = {
+    'apikey': SUPABASE_KEY,
+    'Authorization': 'Bearer ' + SUPABASE_KEY,
+    'Content-Type': 'application/json'
+  };
+  
+  // Tell Supabase to return the updated row when we PATCH or POST
+  if (method === 'POST' || method === 'PATCH') {
+    headers['Prefer'] = 'return=representation';
+  }
+
   const res = await fetch(url, {
     method,
-    headers: {
-      'apikey': SUPABASE_KEY,
-      'Authorization': 'Bearer ' + SUPABASE_KEY,
-      'Content-Type': 'application/json',
-      'Prefer': method === 'POST' ? 'return=representation' : ''
-    },
+    headers,
     body: body ? JSON.stringify(body) : undefined
   });
-  if (!res.ok) throw new Error(await res.text());
-  return method === 'DELETE' ? true : res.json();
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || res.statusText);
+  }
+
+  // Safe parsing: If response is empty (like a PATCH or DELETE), return true
+  const text = await res.text();
+  if (!text) return true;
+  
+  try {
+    return JSON.parse(text);
+  } catch (e) {
+    return true;
+  }
 }
 
 const $  = (s, r = document) => r.querySelector(s);
