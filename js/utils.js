@@ -1,7 +1,3 @@
-/* =========================================================================
-   UTILS.JS — Shared helpers (No database logic here)
-   ========================================================================= */
-
 export const $ = (s, r = document) => r.querySelector(s);
 export const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
 
