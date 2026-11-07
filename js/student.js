@@ -230,11 +230,14 @@ function renderStepDocuments(app) {
 function renderStepReview(app) {
   return `
     <h2>Review & Submit</h2>
-    <div class="certify" id="certifyBox">
-      <input type="checkbox" id="certifyCheck">
+    <p class="subtitle">Please check your information carefully before submitting.</p>
+    
+    <div class="certify" id="certifyBox" data-action="toggleCertify">
+      <input type="checkbox" id="certifyCheck" style="pointer-events: none;">
       <span class="check-box"></span>
-      <span class="cert-text">I certify that all information is correct.</span>
+      <span class="cert-text">I certify that all information provided is true and correct to the best of my knowledge.</span>
     </div>
+
     <div class="apply-footer">
       <button class="btn btn-outline" data-action="prevStep" data-step="5">← Back</button>
       <button class="btn btn-gold" data-action="submitApplication">✈ Submit Application</button>
