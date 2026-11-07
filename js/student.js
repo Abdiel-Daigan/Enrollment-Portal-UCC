@@ -1,8 +1,7 @@
-import { $, esc, toast, hash, initials } from './utils.js';
+import { esc, toast } from './utils.js';
 import { supa } from './api.js';
 import { session } from './auth.js';
 
-// --- DASHBOARD ---
 export async function renderStudentDashboard() {
   const user = session;
   const apps = await supa('applications', { match: { user_id: user.userId } }).catch(() => []);
@@ -12,7 +11,6 @@ export async function renderStudentDashboard() {
   if (app) {
     let pr = app.program;
     if (typeof pr === 'string') { try { pr = JSON.parse(pr); } catch (e) {} }
-    
     if (app.personal && app.personal.first_name) completed = 1;
     if (app.education && app.education.shs && app.education.shs.school) completed = 2;
     if (pr && pr.preferred) completed = 3;
@@ -25,7 +23,7 @@ export async function renderStudentDashboard() {
     { id: 2, label: 'Educational Background', icon: '🏛️' },
     { id: 3, label: 'Program Choice', icon: '⚙️' },
     { id: 4, label: 'Upload Documents', icon: '📄' },
-    { id: 5, label: 'Review & Submit', icon: '✓' }
+    { id: 5, label: 'Application Submitted', icon: '✓' }
   ];
 
   return `
@@ -39,7 +37,7 @@ export async function renderStudentDashboard() {
     </div>
 
     <div class="progress-card">
-      <h3>Enrollment Progress</h3>
+      <h3>Enrollment Status</h3>
       <div class="steps">
         ${steps.map(s => {
           const isDone = s.id <= completed;
@@ -55,13 +53,20 @@ export async function renderStudentDashboard() {
       </div>
 
       ${app && app.submitted ? `
-        <div class="continue-bar">
-          <div class="cb-icon">✓</div>
-          <div class="cb-text">
-            <h4>Application Submitted</h4>
-            <p>Reference: <strong>${esc(app.reference || '—')}</strong> · Status: <strong>${esc(app.status || 'Pending')}</strong></p>
+        <div class="continue-bar" style="flex-direction: column; align-items: flex-start; gap: 10px;">
+          <div style="display:flex; gap:10px; align-items:center;">
+            <div class="cb-icon" style="background: ${app.status === 'Approved' ? 'var(--mint-600)' : 'var(--gold-500)'};">✓</div>
+            <div class="cb-text">
+              <h4>Application Status: ${esc(app.status || 'Pending Review')}</h4>
+              <p>Reference: <strong>${esc(app.reference || '—')}</strong></p>
+            </div>
           </div>
-          <button type="button" class="btn btn-outline" data-nav="browse">Browse Courses</button>
+          <div class="rp-notice info" style="margin-bottom:0; width: 100%;">
+            <span>ℹ️</span>
+            <span>${app.status === 'Approved' 
+              ? 'Congratulations! Your enrollment is approved. Please check your schedule with the Registrar.' 
+              : 'Please wait for the Faculty to assign your subjects and for Accounting to clear your payment.'}</span>
+          </div>
         </div>
       ` : `
         <div class="continue-bar">
@@ -70,14 +75,13 @@ export async function renderStudentDashboard() {
             <h4>Continue your application</h4>
             <p>Complete all required information to finish your enrollment.</p>
           </div>
-          <button type="button" class="btn btn-primary" data-action="continueApp">Continue Application →</button>
+          <button class="btn btn-primary" data-action="continueApp">Continue Application →</button>
         </div>
       `}
     </div>
   `;
 }
 
-// --- APPLY WIZARD ---
 export async function renderApply() {
   const user = session;
   const apps = await supa('applications', { match: { user_id: user.userId } }).catch(() => []);
@@ -87,7 +91,7 @@ export async function renderApply() {
 
   let html = '';
   if (app.submitted) {
-    html = renderSuccess(app);
+    html = `<div class="success-wrap"><div class="success-check">✓</div><h2>Application Submitted!</h2><p>Wait for the Faculty and Admin to process your enrollment.</p></div>`;
   } else {
     switch(step) {
       case 1: html = renderStepPersonal(app); break;
@@ -141,7 +145,7 @@ function renderStepPersonal(app) {
     </form>
     <div class="apply-footer">
       <span></span>
-      <button type="submit" class="btn btn-primary" data-action="nextStep" data-step="1">Next →</button>
+      <button type="submit" form="stepForm" class="btn btn-primary" data-action="nextStep" data-step="1">Next →</button>
     </div>
   `;
 }
@@ -165,8 +169,8 @@ function renderStepEducation(app) {
       ${block('shs', 'Senior High', 'shs')}
     </form>
     <div class="apply-footer">
-      <button type="button" typeclass="btn btn-outline" data-action="prevStep" data-step="2">← Back</button>
-      <button type="submit" class="btn btn-primary" data-action="nextStep" data-step="2">Next →</button>
+      <button type="button" class="btn btn-outline" data-action="prevStep" data-step="2">← Back</button>
+      <button type="submit" form="stepForm" class="btn btn-primary" data-action="nextStep" data-step="2">Next →</button>
     </div>
   `;
 }
@@ -192,7 +196,7 @@ function renderStepProgram(app) {
     </form>
     <div class="apply-footer">
       <button type="button" class="btn btn-outline" data-action="prevStep" data-step="3">← Back</button>
-      <button type="submit" class="btn btn-primary" data-action="nextStep" data-step="3">Next →</button>
+      <button type="submit" form="stepForm" class="btn btn-primary" data-action="nextStep" data-step="3">Next →</button>
     </div>
   `;
 }
@@ -208,7 +212,7 @@ function renderStepDocuments(app) {
         </div>
         <div class="doc-choice" data-action="chooseDocType" data-type="transferee">
           <h3>Transferee</h3>
-          <button type="submit" class="btn btn-outline">Continue →</button>
+          <button class="btn btn-outline">Continue →</button>
         </div>
       </div>
     `;
@@ -221,8 +225,8 @@ function renderStepDocuments(app) {
       <div class="upload-row"><div><h4>Good Moral</h4></div><input type="file" data-upload="moral"></div>
     </form>
     <div class="apply-footer">
-      <button class="btn btn-outline" data-action="changeDocType">← Back</button>
-      <button class="btn btn-primary" data-action="nextStep" data-step="4">Next →</button>
+      <button type="button" class="btn btn-outline" data-action="changeDocType">← Back</button>
+      <button type="submit" form="stepForm" class="btn btn-primary" data-action="nextStep" data-step="4">Next →</button>
     </div>
   `;
 }
@@ -239,103 +243,8 @@ function renderStepReview(app) {
     </div>
 
     <div class="apply-footer">
-      <button class="btn btn-outline" data-action="prevStep" data-step="5">← Back</button>
-      <button class="btn btn-gold" data-action="submitApplication">✈ Submit Application</button>
-    </div>
-  `;
-}
-
-function renderSuccess(app) {
-  return `
-    <div class="success-wrap">
-      <div class="success-check">✓</div>
-      <h2>Application Submitted!</h2>
-      <p>Reference: ${esc(app.reference)}</p>
-      <button class="btn btn-primary" data-nav="browse">Browse Courses</button>
-    </div>
-  `;
-}
-
-// --- BROWSE COURSES ---
-export async function renderBrowseCourses() {
-  const user = session;
-  const apps = await supa('applications', { match: { user_id: user.userId } }).catch(() => []);
-  const app = apps[0];
-  
-  if (!app) return `<div class="progress-card rp-empty">Please complete your application first.</div>`;
-  
-  let pr = app.program;
-  if (typeof pr === 'string') { try { pr = JSON.parse(pr); } catch (e) {} }
-  const progId = pr && pr.preferred;
-  
-  if (!progId) return `<div class="progress-card rp-empty">Please select a program in your application first.</div>`;
-
-  const [courses, sections, myEnrollments] = await Promise.all([
-    supa('courses', { match: { program_id: Number(progId) } }),
-    supa('sections'),
-    supa('enrollments', { match: { user_id: user.userId } })
-  ]);
-
-  const mySectionIds = new Set(myEnrollments.map(e => String(e.section_id)));
-
-  return `
-    <div class="college-banner" style="min-height:160px">
-      <div class="banner-text" style="padding:28px 34px"><h2 style="font-size:26px">Browse Courses</h2></div>
-      <div class="banner-img"></div>
-    </div>
-    ${courses.map(c => {
-      const secs = sections.filter(s => String(s.course_id) === String(c.id));
-      if (!secs.length) return '';
-      return `
-        <div class="progress-card" style="margin-bottom:18px">
-          <h3>${esc(c.code)} — ${esc(c.title)}</h3>
-          ${secs.map(sec => {
-            const enrolled = mySectionIds.has(String(sec.id));
-            return `
-              <div style="display:flex;justify-content:space-between;padding:12px;border:1px solid #ddd;margin-top:10px">
-                <div>Sec ${esc(sec.section_name)} | ${esc(sec.schedule)} | Room ${esc(sec.room)}</div>
-                ${enrolled 
-                  ? '<button class="btn btn-ghost btn-sm" disabled>Enrolled</button>' 
-                  : `<button class="btn btn-primary btn-sm" data-enroll-section="${sec.id}">Enroll</button>`}
-              </div>
-            `;
-          }).join('')}
-        </div>
-      `;
-    }).join('')}
-  `;
-}
-
-// --- SCHEDULE ---
-export async function renderSchedule() {
-  const myEnrollments = await supa('enrollments', { match: { user_id: session.userId } });
-  if (!myEnrollments.length) return `<div class="progress-card rp-empty">No schedule yet. Go to Browse Courses to enroll.</div>`;
-
-  const sections = await supa('sections');
-  const courses = await supa('courses');
-  
-  return `
-    <div class="progress-card">
-      <h3>My Schedule</h3>
-      <div class="rp-table-wrap">
-        <table class="rp-table">
-          <thead><tr><th>Code</th><th>Title</th><th>Section</th><th>Schedule</th><th>Room</th></tr></thead>
-          <tbody>
-            ${myEnrollments.map(e => {
-              const sec = sections.find(s => String(s.id) === String(e.section_id));
-              const c = sec ? courses.find(x => String(x.id) === String(sec.course_id)) : null;
-              if (!sec || !c) return '';
-              return `<tr>
-                <td><strong>${esc(c.code)}</strong></td>
-                <td>${esc(c.title)}</td>
-                <td>${esc(sec.section_name)}</td>
-                <td>${esc(sec.schedule)}</td>
-                <td>${esc(sec.room)}</td>
-              </tr>`;
-            }).join('')}
-          </tbody>
-        </table>
-      </div>
+      <button type="button" class="btn btn-outline" data-action="prevStep" data-step="5">← Back</button>
+      <button type="button" class="btn btn-gold" data-action="submitApplication">✈ Submit Application</button>
     </div>
   `;
 }
