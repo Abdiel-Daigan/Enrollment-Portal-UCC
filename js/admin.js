@@ -76,7 +76,6 @@ export async function renderAdminEnrollments() {
   const apps = await supa('applications');
   const users = await supa('users', { match: { role: 'student' } });
   
-  // We only want to approve students who have submitted their app and are waiting
   const submittedApps = apps.filter(a => a.submitted);
 
   return `
@@ -156,7 +155,6 @@ export async function adminOpenStudentModal(userId) {
           </div>
           <div class="rp-modal-body">
             
-            <!-- EDIT STUDENT FORM -->
             <h4 style="margin-bottom:10px; font-size:14px; color:var(--mint-800);">Edit Student Details</h4>
             <form id="adminEditStudentForm" style="display:grid; gap:10px; margin-bottom:24px;">
               <input type="hidden" name="user_id" value="${userId}">
