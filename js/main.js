@@ -273,7 +273,15 @@ document.addEventListener('click', async (e) => {
   }
 });
 
-// FORMS
+// GLOBAL CHANGE LISTENERS (DROPDOWNS)
+document.addEventListener('change', (e) => {
+  if (e.target.dataset.change === 'facultyStudent') {
+    window.facultyStudent = e.target.value;
+    renderAll();
+  }
+});
+
+// GLOBAL FORMS
 document.addEventListener('submit', async (e) => {
   e.preventDefault();
   
