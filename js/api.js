@@ -1,7 +1,7 @@
 import { toast } from './utils.js';
 
-const SUPABASE_URL = 'https://YOUR_PROJECT_ID.supabase.co';
-const SUPABASE_KEY = 'YOUR_ANON_KEY';
+const SUPABASE_URL = 'https://oysqcmgdpmmhyaxxvjbl.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_DZyDoTCghbN0VccKWIFMlw_R1a5tlW1';
 
 export async function supa(table, options = {}) {
   const { method = 'GET', body, match } = options;
