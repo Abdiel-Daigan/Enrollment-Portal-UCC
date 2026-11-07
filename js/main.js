@@ -1,7 +1,7 @@
 import { $, esc, toast, initials } from './utils.js';
 import { supa } from './api.js';
 import { session, loadSession, doLogin, doRegister, doLogout } from './auth.js';
-import { setStudentView, renderStudentDashboard, renderApply, renderBrowseCourses, renderSchedule } from './student.js';
+import { renderStudentDashboard, renderApply, renderBrowseCourses, renderSchedule } from './student.js';
 
 // 1. Initialize Session
 loadSession();
@@ -11,7 +11,6 @@ export async function renderAll() {
   const authPage = $('#authPage');
   const pageWrap = $('#pageWrap');
   const navbar = $('#navbar');
-  const toastRoot = $('#toastRoot');
 
   if (!session) {
     authPage.classList.remove('hidden');
@@ -42,7 +41,6 @@ export async function renderAll() {
   // Render Page Content
   pageWrap.innerHTML = '<div class="progress-card">Loading...</div>';
   
-  // Determine current view (default to dashboard)
   const currentView = window.currentView || 'dashboard';
 
   if (currentView === 'dashboard') pageWrap.innerHTML = await renderStudentDashboard();
@@ -80,12 +78,13 @@ function renderAuthPage() {
   `;
 }
 
-// 4. Event Listeners
+// 4. Global Click Listeners
 document.addEventListener('click', async (e) => {
   // Nav routing
   const navBtn = e.target.closest('[data-nav]');
   if (navBtn) {
     window.currentView = navBtn.dataset.nav;
+    window.currentStep = 1; // reset step
     renderAll();
     return;
   }
@@ -94,6 +93,7 @@ document.addEventListener('click', async (e) => {
   if (!btn) return;
   const action = btn.dataset.action;
 
+  // --- Auth Tabs ---
   if (action === 'authTab') {
     $('.auth-tab.active').classList.remove('active');
     btn.classList.add('active');
@@ -104,35 +104,161 @@ document.addEventListener('click', async (e) => {
       $('#loginForm').classList.add('hidden');
       $('#registerForm').classList.remove('hidden');
     }
+    return;
   }
 
-  if (action === 'nextStep') {
-    const step = Number(btn.dataset.step);
-    // Save step logic here (simplified for brevity)
-    setStudentView('apply', step + 1);
+  // --- Document Type Selection ---
+  if (action === 'chooseDocType') {
+    const type = btn.dataset.type;
+    const user = session;
+    const existing = await supa('applications', { match: { user_id: user.userId } });
+    const app = existing[0] || {};
+    
+    await supa('applications', {
+      method: existing.length ? 'PATCH' : 'POST',
+      match: existing.length ? { user_id: user.userId } : undefined,
+      body: { 
+        user_id: user.userId, doc_type: type,
+        personal: app.personal || {}, education: app.education || {},
+        program: app.program || {}, documents: app.documents || {}, submitted: false
+      }
+    });
+    window.currentStep = 4;
     renderAll();
+    return;
+  }
+
+  if (action === 'changeDocType') {
+    const user = session;
+    await supa('applications', {
+      method: 'PATCH',
+      match: { user_id: user.userId },
+      body: { doc_type: null, documents: {} }
+    });
+    window.currentStep = 4;
+    renderAll();
+    return;
+  }
+
+  // --- Wizard Navigation (Next/Prev handled by form submit or simple toggles) ---
+  if (action === 'nextStep') {
+    // If they are on Step 4 (Docs) we don't have a form submit blocking them. 
+    if (Number(btn.dataset.step) === 4) {
+       window.currentStep = 5;
+       renderAll();
+    }
+    // Note: Steps 1, 2, and 3 are handled by the form submit listener below.
+    return;
   }
   
   if (action === 'prevStep') {
-    const step = Number(btn.dataset.step);
-    setStudentView('apply', step - 1);
+    window.currentStep = Number(btn.dataset.step) - 1;
     renderAll();
+    return;
+  }
+
+  if (action === 'gotoStep') {
+    window.currentStep = Number(btn.dataset.step);
+    renderAll();
+    return;
   }
 
   if (action === 'continueApp') {
-    setStudentView('apply', 1);
+    window.currentStep = 1;
     window.currentView = 'apply';
     renderAll();
+    return;
+  }
+
+  if (action === 'submitApplication') {
+    const chk = $('#certifyCheck');
+    if (!chk || !chk.checked) return toast('Please certify that your information is correct.', 'error');
+    
+    const user = session;
+    const existing = await supa('applications', { match: { user_id: user.userId } });
+    const app = existing[0] || {};
+    
+    await supa('applications', {
+      method: 'PATCH',
+      match: { user_id: user.userId },
+      body: { 
+        submitted: true, 
+        reference: 'UCC-' + Date.now().toString().slice(-8),
+        status: 'Pending Review'
+      }
+    });
+    toast('Application submitted successfully!');
+    window.currentView = 'dashboard';
+    renderAll();
+    return;
+  }
+
+  // --- Enroll Section ---
+  const enrollBtn = e.target.closest('[data-enroll-section]');
+  if (enrollBtn) {
+    const sectionId = Number(enrollBtn.dataset.enrollSection);
+    const user = session;
+    try {
+      await supa('enrollments', { method: 'POST', body: { user_id: user.userId, section_id: sectionId, status: 'Enrolled' } });
+      toast('Enrolled successfully!');
+      renderAll();
+    } catch (err) {
+      toast('Failed to enroll.', 'error');
+    }
+    return;
   }
 });
 
+// 5. Global Form Submit Listeners
 document.addEventListener('submit', async (e) => {
   e.preventDefault();
+  
+  // Auth
   if (e.target.id === 'loginForm') {
     await doLogin(e.target, () => { window.currentView = 'dashboard'; renderAll(); });
+    return;
   }
   if (e.target.id === 'registerForm') {
     await doRegister(e.target, () => { window.currentView = 'dashboard'; renderAll(); });
+    return;
+  }
+
+  // --- SAVE WIZARD DATA ON NEXT ---
+  if (e.target.id === 'stepForm') {
+    const step = Number(e.target.dataset.step);
+    const fd = new FormData(e.target);
+    const user = session;
+    
+    const existing = await supa('applications', { match: { user_id: user.userId } });
+    const app = existing[0] || { personal: {}, education: {}, program: {}, documents: {} };
+    
+    if (step === 1) {
+      app.personal = {
+        first_name: fd.get('first_name'), middle_name: fd.get('middle_name'), last_name: fd.get('last_name'),
+        email: fd.get('email'), phone: fd.get('phone'), address: fd.get('address')
+      };
+    } else if (step === 2) {
+      app.education = {
+        elem: { school: fd.get('elem_school'), year: fd.get('elem_year') },
+        jhs: { school: fd.get('jhs_school'), year: fd.get('jhs_year') },
+        shs: { school: fd.get('shs_school'), year: fd.get('shs_year') }
+      };
+    } else if (step === 3) {
+      app.program = { preferred: fd.get('preferred') };
+    }
+
+    await supa('applications', {
+      method: existing.length ? 'PATCH' : 'POST',
+      match: existing.length ? { user_id: user.userId } : undefined,
+      body: {
+        user_id: user.userId,
+        personal: app.personal, education: app.education, program: app.program,
+        documents: app.documents || {}, doc_type: app.doc_type || null, submitted: false
+      }
+    });
+
+    window.currentStep = step + 1;
+    renderAll();
   }
 });
 
@@ -143,4 +269,5 @@ window.logout = () => {
 
 // Initial Boot
 window.currentView = 'dashboard';
+window.currentStep = 1;
 renderAll();
