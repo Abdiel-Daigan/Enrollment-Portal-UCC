@@ -61,7 +61,7 @@ export async function renderStudentDashboard() {
             <h4>Application Submitted</h4>
             <p>Reference: <strong>${esc(app.reference || '—')}</strong> · Status: <strong>${esc(app.status || 'Pending')}</strong></p>
           </div>
-          <button class="btn btn-outline" data-nav="browse">Browse Courses</button>
+          <button type="button" class="btn btn-outline" data-nav="browse">Browse Courses</button>
         </div>
       ` : `
         <div class="continue-bar">
@@ -70,7 +70,7 @@ export async function renderStudentDashboard() {
             <h4>Continue your application</h4>
             <p>Complete all required information to finish your enrollment.</p>
           </div>
-          <button class="btn btn-primary" data-action="continueApp">Continue Application →</button>
+          <button type="button" class="btn btn-primary" data-action="continueApp">Continue Application →</button>
         </div>
       `}
     </div>
@@ -141,7 +141,7 @@ function renderStepPersonal(app) {
     </form>
     <div class="apply-footer">
       <span></span>
-      <button class="btn btn-primary" data-action="nextStep" data-step="1">Next →</button>
+      <button type="submit" class="btn btn-primary" data-action="nextStep" data-step="1">Next →</button>
     </div>
   `;
 }
@@ -165,8 +165,8 @@ function renderStepEducation(app) {
       ${block('shs', 'Senior High', 'shs')}
     </form>
     <div class="apply-footer">
-      <button class="btn btn-outline" data-action="prevStep" data-step="2">← Back</button>
-      <button class="btn btn-primary" data-action="nextStep" data-step="2">Next →</button>
+      <button type="button" typeclass="btn btn-outline" data-action="prevStep" data-step="2">← Back</button>
+      <button type="submit" class="btn btn-primary" data-action="nextStep" data-step="2">Next →</button>
     </div>
   `;
 }
@@ -191,8 +191,8 @@ function renderStepProgram(app) {
       </div>
     </form>
     <div class="apply-footer">
-      <button class="btn btn-outline" data-action="prevStep" data-step="3">← Back</button>
-      <button class="btn btn-primary" data-action="nextStep" data-step="3">Next →</button>
+      <button type="button" class="btn btn-outline" data-action="prevStep" data-step="3">← Back</button>
+      <button type="submit" class="btn btn-primary" data-action="nextStep" data-step="3">Next →</button>
     </div>
   `;
 }
@@ -208,7 +208,7 @@ function renderStepDocuments(app) {
         </div>
         <div class="doc-choice" data-action="chooseDocType" data-type="transferee">
           <h3>Transferee</h3>
-          <button class="btn btn-outline">Continue →</button>
+          <button type="submit" class="btn btn-outline">Continue →</button>
         </div>
       </div>
     `;
