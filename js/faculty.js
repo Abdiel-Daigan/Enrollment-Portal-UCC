@@ -38,12 +38,15 @@ export async function renderFacultyProgress() {
   if (typeof pr === 'string') { try { pr = JSON.parse(pr); } catch(e){} }
   const progId = pr ? pr.preferred : null;
 
+  // Filter courses by the student's program. If no program, show all.
   const programCourses = progId ? courses.filter(c => String(c.program_id) === String(progId)) : courses;
 
   const taken = subjects.filter(s => String(s.user_id) === String(student.id));
-  const takenIds = taken.map(t => t.course_id);
+  // Ensure we compare strings to avoid type mismatch bugs
+  const takenIds = taken.map(t => String(t.course_id));
 
-  const availableToAdd = programCourses.filter(c => !takenIds.includes(c.id));
+  // Find courses that are NOT in the taken list
+  const availableToAdd = programCourses.filter(c => !takenIds.includes(String(c.id)));
 
   return `
     <div class="rp-toolbar">
@@ -95,18 +98,29 @@ export async function renderFacultyProgress() {
 
       <div class="rp-card">
         <div class="rp-card-head"><h3>➕ Add Subject</h3></div>
-        <form id="facultyAddSubjectForm" style="display:flex; gap:10px; flex-direction: column;">
-          <input type="hidden" name="student_id" value="${student.id}">
-          <select class="rp-input" name="course_id" required>
-            <option value="">Select a course to add...</option>
-            ${availableToAdd.map(c => `<option value="${c.id}">${esc(c.code)} — ${esc(c.title)}</option>`).join('')}
-          </select>
-          <select class="rp-input" name="status" required>
-            <option value="Enrolled">Enrolled (Waiting for Payment)</option>
-            <option value="Taken">Taken (Already Passed)</option>
-          </select>
-          <button type="submit" class="rp-btn rp-btn-primary" style="justify-content: center;">Add Subject</button>
-        </form>
+        
+        ${availableToAdd.length ? `
+          <form id="facultyAddSubjectForm" style="display:flex; gap:10px; flex-direction: column;">
+            <input type="hidden" name="student_id" value="${student.id}">
+            <select class="rp-input" name="course_id" required>
+              <option value="">Select a course to add...</option>
+              ${availableToAdd.map(c => `<option value="${c.id}">${esc(c.code)} — ${esc(c.title)}</option>`).join('')}
+            </select>
+            <select class="rp-input" name="status" required>
+              <option value="Enrolled">Enrolled (Waiting for Payment)</option>
+              <option value="Taken">Taken (Already Passed)</option>
+            </select>
+            <button type="submit" class="rp-btn rp-btn-primary" style="justify-content: center;">Add Subject</button>
+          </form>
+        ` : `
+          <div class="rp-empty">
+            <span class="big">✅</span>
+            No subjects available to add.<br>
+            <span style="font-size:12px; margin-top:5px; display:block; color:var(--muted);">
+              Either all subjects for this program have been assigned, or no subjects exist for Program ID: <strong>${esc(progId || 'None')}</strong> yet.
+            </span>
+          </div>
+        `}
       </div>
     </div>
   `;
