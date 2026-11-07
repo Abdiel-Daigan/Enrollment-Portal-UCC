@@ -3,7 +3,7 @@ import { supa } from './api.js';
 import { session, loadSession, doLogin, doRegister, doLogout } from './auth.js';
 import { renderStudentDashboard, renderApply } from './student.js';
 import { renderAdminDashboard, renderAdminStudents, renderAdminCourses, renderAdminEnrollments, adminOpenStudentModal } from './admin.js';
-import { renderFacultyDashboard, renderFacultyProgress } from './faculty.js';
+import { renderFacultyDashboard, renderFacultyProgress, renderFacultyCourses } from './faculty.js';
 
 loadSession();
 
@@ -129,6 +129,7 @@ async function renderFacultyLayout() {
         <nav class="role-nav">
           <button class="role-nav-item ${window.currentView === 'dashboard' ? 'active' : ''}" onclick="window.setFacultyView('dashboard')"><span class="rni">🏠</span> Dashboard</button>
           <button class="role-nav-item ${window.currentView === 'progress' ? 'active' : ''}" onclick="window.setFacultyView('progress')"><span class="rni">🔍</span> Check Students</button>
+          <button class="role-nav-item ${window.currentView === 'courses' ? 'active' : ''}" onclick="window.setFacultyView('courses')"><span class="rni">📚</span> Manage Subjects</button>
         </nav>
         <div class="role-side-foot"><button onclick="window.logout()">Sign out</button></div>
       </aside>
@@ -147,6 +148,7 @@ async function renderFacultyLayout() {
 
   if (view === 'dashboard') content.innerHTML = await renderFacultyDashboard();
   else if (view === 'progress') content.innerHTML = await renderFacultyProgress();
+  else if (view === 'courses') content.innerHTML = await renderFacultyCourses();
 }
 
 window.setFacultyView = (view) => { window.currentView = view; renderAll(); };
@@ -231,6 +233,19 @@ document.addEventListener('click', async (e) => {
     return;
   }
 
+  if (action === 'facultyDeleteCourse') {
+    const courseId = Number(btn.dataset.id);
+    if (!confirm('Are you sure you want to delete this subject from the curriculum?')) return;
+    try {
+      await supa('courses', { method: 'DELETE', match: { id: courseId } });
+      toast('Subject deleted.');
+      renderAll();
+    } catch (err) {
+      toast('Cannot delete subject. It might be tied to student records.', 'error');
+    }
+    return;
+  }
+
   // ADMIN ACTIONS
   if (action === 'adminOpenStudent') {
     await adminOpenStudentModal(Number(btn.dataset.id)); return;
@@ -302,16 +317,36 @@ document.addEventListener('submit', async (e) => {
     return;
   }
 
+  // Faculty Create Subject (Course)
+  if (e.target.id === 'facultyCreateCourseForm') {
+    const fd = new FormData(e.target);
+    const payload = {
+      code: fd.get('code'),
+      title: fd.get('title'),
+      units: Number(fd.get('units')),
+      program_id: Number(fd.get('program_id')),
+      department_id: Number(fd.get('department_id'))
+    };
+
+    try {
+      await supa('courses', { method: 'POST', body: payload });
+      toast('Subject created successfully.');
+      e.target.reset();
+      renderAll();
+    } catch (err) {
+      toast('Failed to create subject. Check if code already exists.', 'error');
+    }
+    return;
+  }
+
   // Admin Edit Student
   if (e.target.id === 'adminEditStudentForm') {
     const fd = new FormData(e.target);
     const userId = Number(fd.get('user_id'));
     
     try {
-      // Update User table
       await supa('users', { method: 'PATCH', match: { id: userId }, body: { name: fd.get('name'), email: fd.get('email'), role: fd.get('role') } });
       
-      // Update Application program
       const existing = await supa('applications', { match: { user_id: userId } });
       if (existing.length) {
         let app = existing[0];
