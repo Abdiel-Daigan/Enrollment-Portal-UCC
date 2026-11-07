@@ -4,16 +4,19 @@ import { supa } from './api.js';
 export async function renderFacultyDashboard() {
   const students = await supa('users', { match: { role: 'student' } });
   const apps = await supa('applications');
+  const courses = await supa('courses');
+  
   const submitted = apps.filter(a => a.submitted).length;
 
   return `
     <div class="rp-grid-4">
       <div class="rp-card rp-stat"><div class="ic">👥</div><div><div class="val">${students.length}</div><div class="lbl">Total Students</div></div></div>
       <div class="rp-card rp-stat gold"><div class="ic">✅</div><div><div class="val">${submitted}</div><div class="lbl">Applications Submitted</div></div></div>
+      <div class="rp-card rp-stat"><div class="ic">📚</div><div><div class="val">${courses.length}</div><div class="lbl">Total Subjects</div></div></div>
     </div>
     <div class="rp-card">
       <h3>College Department</h3>
-      <p class="rp-hint" style="margin-top:10px;">Go to <strong>Check Students</strong> to assign subjects and manage enrollment statuses.</p>
+      <p class="rp-hint" style="margin-top:10px;">Go to <strong>Check Students</strong> to assign subjects, or <strong>Manage Subjects</strong> to update the curriculum.</p>
     </div>
   `;
 }
@@ -105,6 +108,51 @@ export async function renderFacultyProgress() {
           </select>
           <button type="submit" class="rp-btn rp-btn-primary" style="justify-content: center;">Add Subject</button>
         </form>
+      </div>
+    </div>
+  `;
+}
+
+export async function renderFacultyCourses() {
+  const courses = await supa('courses');
+  
+  return `
+    <div class="rp-grid-2">
+      <div class="rp-card">
+        <div class="rp-card-head"><h3>➕ Create New Subject</h3></div>
+        <form id="facultyCreateCourseForm" style="display:flex; flex-direction: column; gap: 10px;">
+          <div class="field-row">
+            <div class="field"><label>Course Code</label><input class="rp-input" name="code" placeholder="e.g. BSCS-101" required></div>
+            <div class="field"><label>Units</label><input class="rp-input" type="number" name="units" value="3" required></div>
+          </div>
+          <div class="field"><label>Title</label><input class="rp-input" name="title" placeholder="Introduction to Computing" required></div>
+          <div class="field-row">
+            <div class="field"><label>Program ID</label><input class="rp-input" type="number" name="program_id" placeholder="e.g. 8" required></div>
+            <div class="field"><label>Department ID</label><input class="rp-input" type="number" name="department_id" value="2" required></div>
+          </div>
+          <button type="submit" class="rp-btn rp-btn-primary" style="margin-top: 10px; justify-content: center;">Create Subject</button>
+        </form>
+      </div>
+
+      <div class="rp-card">
+        <div class="rp-card-head"><h3>📚 All Subjects</h3></div>
+        <div class="rp-table-wrap" style="max-height: 400px; overflow-y: auto;">
+          <table class="rp-table">
+            <thead><tr><th>Code</th><th>Title</th><th>Units</th><th style="text-align:right">Action</th></tr></thead>
+            <tbody>
+              ${courses.length ? courses.map(c => `
+                <tr>
+                  <td><strong>${esc(c.code)}</strong></td>
+                  <td>${esc(c.title)}</td>
+                  <td>${c.units}</td>
+                  <td style="text-align:right">
+                    <button class="rp-btn rp-btn-danger rp-btn-sm" data-action="facultyDeleteCourse" data-id="${c.id}">Delete</button>
+                  </td>
+                </tr>
+              `).join('') : '<tr><td colspan="4" class="rp-empty">No subjects found.</td></tr>'}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   `;
