@@ -78,13 +78,13 @@ function renderAuthPage() {
   `;
 }
 
-// 4. Global Click Listeners
+// 4. Global Click Listeners (Handles routing, mobile wizard buttons, and checkboxes)
 document.addEventListener('click', async (e) => {
   // Nav routing
   const navBtn = e.target.closest('[data-nav]');
   if (navBtn) {
     window.currentView = navBtn.dataset.nav;
-    window.currentStep = 1; // reset step
+    window.currentStep = 1; 
     renderAll();
     return;
   }
@@ -104,6 +104,94 @@ document.addEventListener('click', async (e) => {
       $('#loginForm').classList.add('hidden');
       $('#registerForm').classList.remove('hidden');
     }
+    return;
+  }
+
+  // --- Custom Checkbox Toggle (Fixes mobile issue) ---
+  if (action === 'toggleCertify') {
+    const box = $('#certifyBox');
+    const chk = $('#certifyCheck');
+    if (chk.checked) {
+      chk.checked = false;
+      box.classList.remove('checked');
+      box.querySelector('.check-box').textContent = '';
+    } else {
+      chk.checked = true;
+      box.classList.add('checked');
+      box.querySelector('.check-box').textContent = '✓';
+    }
+    return;
+  }
+
+  // --- Wizard Navigation & Manual Save ---
+  if (action === 'nextStep') {
+    const step = Number(btn.dataset.step);
+    const user = session;
+    
+    // 1. Fetch existing data to avoid overwriting
+    const existing = await supa('applications', { match: { user_id: user.userId } });
+    let app = existing[0] || { personal: {}, education: {}, program: {}, documents: {}, doc_type: null, submitted: false };
+    
+    // 2. Extract form data and validate natively
+    const form = document.getElementById('stepForm');
+    let fd = null;
+    if (form) {
+      fd = new FormData(form);
+      if (!form.checkValidity()) {
+        form.reportValidity(); // Shows the "Please fill out this field" popup on mobile/PC
+        return;
+      }
+    }
+
+    // 3. Update specific step data
+    if (step === 1 && fd) {
+      app.personal = {
+        first_name: fd.get('first_name'), middle_name: fd.get('middle_name'), last_name: fd.get('last_name'),
+        email: fd.get('email'), phone: fd.get('phone'), address: fd.get('address')
+      };
+    } else if (step === 2 && fd) {
+      app.education = {
+        elem: { school: fd.get('elem_school'), year: fd.get('elem_year') },
+        jhs: { school: fd.get('jhs_school'), year: fd.get('jhs_year') },
+        shs: { school: fd.get('shs_school'), year: fd.get('shs_year') }
+      };
+    } else if (step === 3 && fd) {
+      app.program = { preferred: fd.get('preferred') };
+    }
+
+    // 4. Save to Supabase
+    await supa('applications', {
+      method: existing.length ? 'PATCH' : 'POST',
+      match: existing.length ? { user_id: user.userId } : undefined,
+      body: {
+        user_id: user.userId,
+        personal: app.personal, education: app.education, program: app.program,
+        documents: app.documents || {}, doc_type: app.doc_type || null, submitted: false
+      }
+    });
+
+    // 5. Advance step
+    window.currentStep = step + 1;
+    renderAll();
+    return;
+  }
+
+  if (action === 'prevStep') {
+    window.currentStep = Number(btn.dataset.step) - 1;
+    renderAll();
+    return;
+  }
+
+  if (action === 'gotoStep') {
+    window.currentStep = Number(btn.dataset.step);
+    renderAll();
+    return;
+  }
+
+  if (action === 'continueApp') {
+    window.currentStep = 1;
+    window.currentView = 'apply';
+    renderAll();
     return;
   }
 
@@ -140,43 +228,13 @@ document.addEventListener('click', async (e) => {
     return;
   }
 
-  // --- Wizard Navigation (Next/Prev handled by form submit or simple toggles) ---
-  if (action === 'nextStep') {
-    // If they are on Step 4 (Docs) we don't have a form submit blocking them. 
-    if (Number(btn.dataset.step) === 4) {
-       window.currentStep = 5;
-       renderAll();
-    }
-    // Note: Steps 1, 2, and 3 are handled by the form submit listener below.
-    return;
-  }
-  
-  if (action === 'prevStep') {
-    window.currentStep = Number(btn.dataset.step) - 1;
-    renderAll();
-    return;
-  }
-
-  if (action === 'gotoStep') {
-    window.currentStep = Number(btn.dataset.step);
-    renderAll();
-    return;
-  }
-
-  if (action === 'continueApp') {
-    window.currentStep = 1;
-    window.currentView = 'apply';
-    renderAll();
-    return;
-  }
-
+  // --- Submit Application ---
   if (action === 'submitApplication') {
     const chk = $('#certifyCheck');
     if (!chk || !chk.checked) return toast('Please certify that your information is correct.', 'error');
     
     const user = session;
     const existing = await supa('applications', { match: { user_id: user.userId } });
-    const app = existing[0] || {};
     
     await supa('applications', {
       method: 'PATCH',
@@ -209,56 +267,15 @@ document.addEventListener('click', async (e) => {
   }
 });
 
-// 5. Global Form Submit Listeners
+// 5. Form Submit (Auth Only - Wizard is handled via click event now)
 document.addEventListener('submit', async (e) => {
   e.preventDefault();
   
-  // Auth
   if (e.target.id === 'loginForm') {
     await doLogin(e.target, () => { window.currentView = 'dashboard'; renderAll(); });
-    return;
   }
   if (e.target.id === 'registerForm') {
     await doRegister(e.target, () => { window.currentView = 'dashboard'; renderAll(); });
-    return;
-  }
-
-  // --- SAVE WIZARD DATA ON NEXT ---
-  if (e.target.id === 'stepForm') {
-    const step = Number(e.target.dataset.step);
-    const fd = new FormData(e.target);
-    const user = session;
-    
-    const existing = await supa('applications', { match: { user_id: user.userId } });
-    const app = existing[0] || { personal: {}, education: {}, program: {}, documents: {} };
-    
-    if (step === 1) {
-      app.personal = {
-        first_name: fd.get('first_name'), middle_name: fd.get('middle_name'), last_name: fd.get('last_name'),
-        email: fd.get('email'), phone: fd.get('phone'), address: fd.get('address')
-      };
-    } else if (step === 2) {
-      app.education = {
-        elem: { school: fd.get('elem_school'), year: fd.get('elem_year') },
-        jhs: { school: fd.get('jhs_school'), year: fd.get('jhs_year') },
-        shs: { school: fd.get('shs_school'), year: fd.get('shs_year') }
-      };
-    } else if (step === 3) {
-      app.program = { preferred: fd.get('preferred') };
-    }
-
-    await supa('applications', {
-      method: existing.length ? 'PATCH' : 'POST',
-      match: existing.length ? { user_id: user.userId } : undefined,
-      body: {
-        user_id: user.userId,
-        personal: app.personal, education: app.education, program: app.program,
-        documents: app.documents || {}, doc_type: app.doc_type || null, submitted: false
-      }
-    });
-
-    window.currentStep = step + 1;
-    renderAll();
   }
 });
 
