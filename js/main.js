@@ -1,12 +1,18 @@
+/* =========================================================================
+   MAIN.JS — App Engine, Routing, and Event Listeners
+   ========================================================================= */
+
 import { $, esc, toast, initials } from './utils.js';
 import { supa } from './api.js';
 import { session, loadSession, doLogin, doRegister, doLogout } from './auth.js';
 import { renderStudentDashboard, renderApply, renderBrowseCourses, renderSchedule } from './student.js';
+import { renderAdminDashboard, renderAdminStudents, renderAdminCourses, renderAdminEnrollments } from './admin.js';
+import { renderFacultyDashboard, renderFacultyProgress } from './faculty.js';
 
 // 1. Initialize Session
 loadSession();
 
-// 2. Main Render Function
+// 2. Main Render Function (Routes based on Role)
 export async function renderAll() {
   const authPage = $('#authPage');
   const pageWrap = $('#pageWrap');
@@ -22,9 +28,20 @@ export async function renderAll() {
 
   authPage.classList.add('hidden');
   pageWrap.classList.remove('hidden');
-
-  // Render Navbar
   navbar.classList.remove('hidden');
+
+  // --- ROLE BASED ROUTING ---
+  if (session.role === 'admin') {
+    renderAdminLayout();
+    return;
+  }
+  
+  if (session.role === 'faculty') {
+    renderFacultyLayout();
+    return;
+  }
+
+  // --- STUDENT ROUTING (Default) ---
   navbar.innerHTML = `
     <div class="nav-brand">
       <div class="nav-brand-text"><span class="b1">UNIDA</span><span class="b2">CHRISTIAN COLLEGES</span></div>
@@ -38,9 +55,7 @@ export async function renderAll() {
     <div style="cursor:pointer" onclick="window.logout()" class="nav-user">👤</div>
   `;
 
-  // Render Page Content
   pageWrap.innerHTML = '<div class="progress-card">Loading...</div>';
-  
   const currentView = window.currentView || 'dashboard';
 
   if (currentView === 'dashboard') pageWrap.innerHTML = await renderStudentDashboard();
@@ -78,9 +93,121 @@ function renderAuthPage() {
   `;
 }
 
-/* ============================ EVENT LISTENERS ============================ */
+// 4. Admin Layout Wrapper
+async function renderAdminLayout() {
+  const pageWrap = $('#pageWrap');
+  const navbar = $('#navbar');
+  
+  navbar.classList.add('hidden');
+  
+  pageWrap.innerHTML = `
+    <div class="role-shell" style="min-height: 100vh;">
+      <aside class="role-sidebar">
+        <div class="role-side-brand">
+          <strong>Admin Portal</strong>
+          <span>Registrar</span>
+        </div>
+        <nav class="role-nav">
+          <button class="role-nav-item ${window.currentView === 'dashboard' ? 'active' : ''}" onclick="window.setAdminView('dashboard')"><span class="rni">🏠</span> Dashboard</button>
+          <button class="role-nav-item ${window.currentView === 'students' ? 'active' : ''}" onclick="window.setAdminView('students')"><span class="rni">👥</span> Students</button>
+          <button class="role-nav-item ${window.currentView === 'courses' ? 'active' : ''}" onclick="window.setAdminView('courses')"><span class="rni">📚</span> Courses</button>
+          <button class="role-nav-item ${window.currentView === 'enrollments' ? 'active' : ''}" onclick="window.setAdminView('enrollments')"><span class="rni">📝</span> Enrollments</button>
+        </nav>
+        <div class="role-side-foot">
+          <button onclick="window.logout()">Sign out</button>
+        </div>
+      </aside>
+      <div class="role-main">
+        <header class="role-topbar">
+          <div>
+            <h1>${window.currentView ? window.currentView.toUpperCase() : 'DASHBOARD'}</h1>
+            <div class="rt-sub">Manage system data</div>
+          </div>
+          <div class="rt-user">
+            <div class="rt-who">
+              <strong>${esc(session.name)}</strong>
+              <span>Admin</span>
+            </div>
+            <div class="rt-avatar">${initials(session.name)}</div>
+          </div>
+        </header>
+        <div class="role-content" id="adminContent">
+          <div class="rp-empty">Loading...</div>
+        </div>
+      </div>
+    </div>
+  `;
 
-// 1. Handle all clicks (Navigation, Tabs, Checkboxes, etc.)
+  const content = $('#adminContent');
+  const view = window.currentView || 'dashboard';
+
+  if (view === 'dashboard') content.innerHTML = await renderAdminDashboard();
+  else if (view === 'students') content.innerHTML = await renderAdminStudents();
+  else if (view === 'courses') content.innerHTML = await renderAdminCourses();
+  else if (view === 'enrollments') content.innerHTML = await renderAdminEnrollments();
+}
+
+window.setAdminView = (view) => {
+  window.currentView = view;
+  renderAll();
+};
+
+// 5. Faculty Layout Wrapper
+async function renderFacultyLayout() {
+  const pageWrap = $('#pageWrap');
+  const navbar = $('#navbar');
+  
+  navbar.classList.add('hidden');
+  
+  pageWrap.innerHTML = `
+    <div class="role-shell" style="min-height: 100vh;">
+      <aside class="role-sidebar">
+        <div class="role-side-brand">
+          <strong>Faculty Portal</strong>
+          <span>College Department</span>
+        </div>
+        <nav class="role-nav">
+          <button class="role-nav-item ${window.currentView === 'dashboard' ? 'active' : ''}" onclick="window.setFacultyView('dashboard')"><span class="rni">🏠</span> Dashboard</button>
+          <button class="role-nav-item ${window.currentView === 'progress' ? 'active' : ''}" onclick="window.setFacultyView('progress')"><span class="rni">🔍</span> Check Students</button>
+        </nav>
+        <div class="role-side-foot">
+          <button onclick="window.logout()">Sign out</button>
+        </div>
+      </aside>
+      <div class="role-main">
+        <header class="role-topbar">
+          <div>
+            <h1>${window.currentView ? window.currentView.toUpperCase() : 'DASHBOARD'}</h1>
+            <div class="rt-sub">Student Evaluation</div>
+          </div>
+          <div class="rt-user">
+            <div class="rt-who">
+              <strong>${esc(session.name)}</strong>
+              <span>Faculty</span>
+            </div>
+            <div class="rt-avatar">${initials(session.name)}</div>
+          </div>
+        </header>
+        <div class="role-content" id="facultyContent">
+          <div class="rp-empty">Loading...</div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  const content = $('#facultyContent');
+  const view = window.currentView || 'dashboard';
+
+  if (view === 'dashboard') content.innerHTML = await renderFacultyDashboard();
+  else if (view === 'progress') content.innerHTML = await renderFacultyProgress();
+}
+
+window.setFacultyView = (view) => {
+  window.currentView = view;
+  renderAll();
+};
+
+// 6. Global Click Listeners (Routing, Wizard, Mobile Checkbox)
 document.addEventListener('click', async (e) => {
   const navBtn = e.target.closest('[data-nav]');
   if (navBtn) {
@@ -94,6 +221,7 @@ document.addEventListener('click', async (e) => {
   if (!btn) return;
   const action = btn.dataset.action;
 
+  // Auth Tabs
   if (action === 'authTab') {
     $('.auth-tab.active').classList.remove('active');
     btn.classList.add('active');
@@ -107,6 +235,7 @@ document.addEventListener('click', async (e) => {
     return;
   }
 
+  // Custom Checkbox
   if (action === 'toggleCertify') {
     const box = $('#certifyBox');
     const chk = $('#certifyCheck');
@@ -122,6 +251,7 @@ document.addEventListener('click', async (e) => {
     return;
   }
 
+  // Wizard Back
   if (action === 'prevStep') {
     window.currentStep = Number(btn.dataset.step) - 1;
     renderAll();
@@ -141,6 +271,7 @@ document.addEventListener('click', async (e) => {
     return;
   }
 
+  // Wizard Documents
   if (action === 'chooseDocType') {
     const type = btn.dataset.type;
     const user = session;
@@ -173,13 +304,12 @@ document.addEventListener('click', async (e) => {
     return;
   }
 
+  // Submit Application
   if (action === 'submitApplication') {
     const chk = $('#certifyCheck');
     if (!chk || !chk.checked) return toast('Please certify that your information is correct.', 'error');
     
     const user = session;
-    const existing = await supa('applications', { match: { user_id: user.userId } });
-    
     await supa('applications', {
       method: 'PATCH',
       match: { user_id: user.userId },
@@ -195,12 +325,12 @@ document.addEventListener('click', async (e) => {
     return;
   }
 
+  // Enroll in Section
   const enrollBtn = e.target.closest('[data-enroll-section]');
   if (enrollBtn) {
     const sectionId = Number(enrollBtn.dataset.enrollSection);
-    const user = session;
     try {
-      await supa('enrollments', { method: 'POST', body: { user_id: user.userId, section_id: sectionId, status: 'Enrolled' } });
+      await supa('enrollments', { method: 'POST', body: { user_id: session.userId, section_id: sectionId, status: 'Enrolled' } });
       toast('Enrolled successfully!');
       renderAll();
     } catch (err) {
@@ -208,13 +338,29 @@ document.addEventListener('click', async (e) => {
     }
     return;
   }
+
+  // Admin Approve Enrollment
+  if (action === 'adminApproveEnrollment') {
+    const userId = Number(btn.dataset.id);
+    try {
+      await supa('applications', {
+        method: 'PATCH',
+        match: { user_id: userId },
+        body: { status: 'Enrolled' }
+      });
+      toast('Student officially enrolled!');
+      renderAll();
+    } catch (err) {
+      toast('Failed to approve.', 'error');
+    }
+    return;
+  }
 });
 
-// 2. Handle Form Submits (Login/Register AND Wizard Next Steps)
+// 7. Form Submit (Login/Register AND Wizard Next Steps)
 document.addEventListener('submit', async (e) => {
   e.preventDefault();
   
-  // Auth Forms
   if (e.target.id === 'loginForm') {
     await doLogin(e.target, () => { window.currentView = 'dashboard'; renderAll(); });
     return;
@@ -224,7 +370,7 @@ document.addEventListener('submit', async (e) => {
     return;
   }
 
-  // Wizard Forms
+  // Wizard Next Step (Works on PC and Mobile)
   if (e.target.id === 'stepForm') {
     const step = Number(e.target.dataset.step);
     const user = session;
