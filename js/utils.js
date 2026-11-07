@@ -1,3 +1,7 @@
+/* =========================================================================
+   UTILS.JS — Shared helpers (No database logic here)
+   ========================================================================= */
+
 export const $ = (s, r = document) => r.querySelector(s);
 export const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
 
@@ -21,7 +25,9 @@ export function toast(msg, type = 'success') {
   const el = document.createElement('div');
   el.className = 'toast toast-' + type;
   el.textContent = msg;
-  $('#toastRoot').appendChild(el);
+  const root = $('#toastRoot');
+  if (root) root.appendChild(el);
+  
   setTimeout(() => {
     el.classList.add('out');
     setTimeout(() => el.remove(), 350);
