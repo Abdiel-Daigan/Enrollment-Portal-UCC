@@ -2,18 +2,6 @@ import { $, esc, toast, hash, initials } from './utils.js';
 import { supa } from './api.js';
 import { session } from './auth.js';
 
-// Global UI state for the student side
-const state = {
-  view: 'dashboard',
-  step: 1,
-  docType: null
-};
-
-export function setStudentView(view, step = 1) {
-  state.view = view;
-  state.step = step;
-}
-
 // --- DASHBOARD ---
 export async function renderStudentDashboard() {
   const user = session;
@@ -28,7 +16,7 @@ export async function renderStudentDashboard() {
     if (app.personal && app.personal.first_name) completed = 1;
     if (app.education && app.education.shs && app.education.shs.school) completed = 2;
     if (pr && pr.preferred) completed = 3;
-    if (app.documents && Object.keys(app.documents).length >= 4) completed = 4;
+    if (app.documents && Object.keys(app.documents).length >= 3) completed = 4;
     if (app.submitted) completed = 5;
   }
 
@@ -73,14 +61,14 @@ export async function renderStudentDashboard() {
             <h4>Application Submitted</h4>
             <p>Reference: <strong>${esc(app.reference || '—')}</strong> · Status: <strong>${esc(app.status || 'Pending')}</strong></p>
           </div>
-          <button class="btn btn-outline" data-nav="review">View Application</button>
+          <button class="btn btn-outline" data-nav="browse">Browse Courses</button>
         </div>
       ` : `
         <div class="continue-bar">
           <div class="cb-icon">👤</div>
           <div class="cb-text">
             <h4>Continue your application</h4>
-            <p>Complete all required information and upload your documents to finish your enrollment.</p>
+            <p>Complete all required information to finish your enrollment.</p>
           </div>
           <button class="btn btn-primary" data-action="continueApp">Continue Application →</button>
         </div>
@@ -95,11 +83,13 @@ export async function renderApply() {
   const apps = await supa('applications', { match: { user_id: user.userId } }).catch(() => []);
   const app = apps[0] || { personal: {}, education: {}, program: {}, documents: {}, doc_type: null, submitted: false };
 
+  const step = window.currentStep || 1;
+
   let html = '';
   if (app.submitted) {
     html = renderSuccess(app);
   } else {
-    switch(state.step) {
+    switch(step) {
       case 1: html = renderStepPersonal(app); break;
       case 2: html = renderStepEducation(app); break;
       case 3: html = renderStepProgram(app); break;
@@ -119,7 +109,7 @@ export async function renderApply() {
           { id: 4, label: 'Documents', icon: '📄' },
           { id: 5, label: 'Review', icon: '✓' }
         ].map(s => `
-          <button class="sidebar-step ${state.step === s.id ? 'active' : ''}" data-action="gotoStep" data-step="${s.id}">
+          <button class="sidebar-step ${step === s.id ? 'active' : ''}" data-action="gotoStep" data-step="${s.id}">
             <span class="ss-icon">${s.icon}</span>
             <span>${s.label}</span>
           </button>
@@ -224,20 +214,11 @@ function renderStepDocuments(app) {
     `;
   }
   return `
-    <h2>Upload Documents (${app.doc_type})</h2>
+    <h2>Upload Documents (${app.doc_type === 'new' ? 'New Student' : 'Transferee'})</h2>
     <form id="stepForm" class="apply-form-body" data-step="4">
-      <div class="upload-row">
-        <div><h4>Report Card / TOR</h4></div>
-        <input type="file" data-upload="tor">
-      </div>
-      <div class="upload-row">
-        <div><h4>PSA Birth Certificate</h4></div>
-        <input type="file" data-upload="psa">
-      </div>
-      <div class="upload-row">
-        <div><h4>Good Moral</h4></div>
-        <input type="file" data-upload="moral">
-      </div>
+      <div class="upload-row"><div><h4>Report Card / TOR</h4></div><input type="file" data-upload="tor"></div>
+      <div class="upload-row"><div><h4>PSA Birth Certificate</h4></div><input type="file" data-upload="psa"></div>
+      <div class="upload-row"><div><h4>Good Moral</h4></div><input type="file" data-upload="moral"></div>
     </form>
     <div class="apply-footer">
       <button class="btn btn-outline" data-action="changeDocType">← Back</button>
@@ -284,7 +265,7 @@ export async function renderBrowseCourses() {
   if (typeof pr === 'string') { try { pr = JSON.parse(pr); } catch (e) {} }
   const progId = pr && pr.preferred;
   
-  if (!progId) return `<div class="progress-card rp-empty">Please select a program in your application.</div>`;
+  if (!progId) return `<div class="progress-card rp-empty">Please select a program in your application first.</div>`;
 
   const [courses, sections, myEnrollments] = await Promise.all([
     supa('courses', { match: { program_id: Number(progId) } }),
@@ -296,9 +277,7 @@ export async function renderBrowseCourses() {
 
   return `
     <div class="college-banner" style="min-height:160px">
-      <div class="banner-text" style="padding:28px 34px">
-        <h2 style="font-size:26px">Browse Courses</h2>
-      </div>
+      <div class="banner-text" style="padding:28px 34px"><h2 style="font-size:26px">Browse Courses</h2></div>
       <div class="banner-img"></div>
     </div>
     ${courses.map(c => {
@@ -327,7 +306,7 @@ export async function renderBrowseCourses() {
 // --- SCHEDULE ---
 export async function renderSchedule() {
   const myEnrollments = await supa('enrollments', { match: { user_id: session.userId } });
-  if (!myEnrollments.length) return `<div class="progress-card rp-empty">No schedule yet.</div>`;
+  if (!myEnrollments.length) return `<div class="progress-card rp-empty">No schedule yet. Go to Browse Courses to enroll.</div>`;
 
   const sections = await supa('sections');
   const courses = await supa('courses');
