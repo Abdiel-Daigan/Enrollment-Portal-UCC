@@ -43,15 +43,14 @@ export async function renderFacultyProgress() {
   const taken = subjects.filter(s => String(s.user_id) === String(student.id));
   const takenIds = taken.map(t => t.course_id);
 
-  // What they haven't taken yet
   const availableToAdd = programCourses.filter(c => !takenIds.includes(c.id));
 
   return `
     <div class="rp-toolbar">
       <div class="grow">
         <label style="font-size:12.5px;font-weight:600;color:var(--muted);margin-bottom:5px;display:block">Select Student to Evaluate</label>
-        <select class="rp-input" onchange="window.setFacultyStudent(this.value)">
-          ${students.map(u => `<option value="${u.id}" ${u.id === student.id ? 'selected' : ''}>${esc(u.name)}</option>`).join('')}
+        <select class="rp-input" data-change="facultyStudent">
+          ${students.map(u => `<option value="${u.id}" ${String(u.id) === String(student.id) ? 'selected' : ''}>${esc(u.name)}</option>`).join('')}
         </select>
       </div>
     </div>
@@ -127,8 +126,22 @@ export async function renderFacultyCourses() {
           </div>
           <div class="field"><label>Title</label><input class="rp-input" name="title" placeholder="Introduction to Computing" required></div>
           <div class="field-row">
-            <div class="field"><label>Program ID</label><input class="rp-input" type="number" name="program_id" placeholder="e.g. 8" required></div>
-            <div class="field"><label>Department ID</label><input class="rp-input" type="number" name="department_id" value="2" required></div>
+            <div class="field">
+              <label>Program ID</label>
+              <select class="rp-input" name="program_id" required>
+                <option value="1">1 — BEEd (Elementary Education)</option>
+                <option value="2">2 — BSEd (Secondary Education)</option>
+                <option value="8">8 — BSCS (Computer Science)</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Department ID</label>
+              <select class="rp-input" name="department_id" required>
+                <option value="1">1 — Admission Office</option>
+                <option value="2">2 — Registrar</option>
+                <option value="3">3 — Accounting</option>
+              </select>
+            </div>
           </div>
           <button type="submit" class="rp-btn rp-btn-primary" style="margin-top: 10px; justify-content: center;">Create Subject</button>
         </form>
@@ -157,8 +170,3 @@ export async function renderFacultyCourses() {
     </div>
   `;
 }
-
-window.setFacultyStudent = (id) => {
-  window.facultyStudent = id;
-  renderAll();
-};
