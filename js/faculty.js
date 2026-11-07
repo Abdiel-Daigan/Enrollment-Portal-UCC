@@ -1,4 +1,4 @@
-import { esc } from './utils.js';
+import { esc, toast } from './utils.js';
 import { supa } from './api.js';
 
 export async function renderFacultyDashboard() {
@@ -13,7 +13,7 @@ export async function renderFacultyDashboard() {
     </div>
     <div class="rp-card">
       <h3>College Department</h3>
-      <p class="rp-hint" style="margin-top:10px;">Go to <strong>Check Students</strong> to evaluate what subjects a student has taken and what they can take next.</p>
+      <p class="rp-hint" style="margin-top:10px;">Go to <strong>Check Students</strong> to assign subjects and manage enrollment statuses.</p>
     </div>
   `;
 }
@@ -39,12 +39,9 @@ export async function renderFacultyProgress() {
 
   const taken = subjects.filter(s => String(s.user_id) === String(student.id));
   const takenIds = taken.map(t => t.course_id);
-  const passedIds = taken.filter(t => t.status === 'Passed').map(t => t.course_id);
 
-  const canTake = programCourses.filter(c => !takenIds.includes(c.id) && !passedIds.includes(c.id));
-
-  const p = app.personal || {};
-  const fullName = p.first_name ? `${p.first_name} ${p.last_name}` : student.name;
+  // What they haven't taken yet
+  const availableToAdd = programCourses.filter(c => !takenIds.includes(c.id));
 
   return `
     <div class="rp-toolbar">
@@ -59,51 +56,55 @@ export async function renderFacultyProgress() {
     <div class="rp-card" style="margin-bottom: 20px;">
       <div class="rp-card-head">
         <div>
-          <h3>${esc(fullName)}</h3>
+          <h3>${esc(student.name)}</h3>
           <div class="rp-hint">${esc(student.email)} · Program ID: ${esc(progId || 'Not selected')}</div>
         </div>
         <span class="rp-badge ${app.submitted ? 'green' : 'gold'}">${app.submitted ? 'Application Submitted' : 'In Progress'}</span>
       </div>
     </div>
 
-    <div class="rp-grid-4" style="margin-bottom: 20px;">
-      <div class="rp-card rp-stat"><div class="ic">📗</div><div><div class="val">${taken.length}</div><div class="lbl">Subjects Taken</div></div></div>
-      <div class="rp-card rp-stat gold"><div class="ic">✅</div><div><div class="val">${passedIds.length}</div><div class="lbl">Subjects Passed</div></div></div>
-      <div class="rp-card rp-stat"><div class="ic">🎯</div><div><div class="val">${canTake.length}</div><div class="lbl">Available to Take</div></div></div>
-      <div class="rp-card rp-stat gold"><div class="ic">🎓</div><div><div class="val">${programCourses.length}</div><div class="lbl">Total Program Courses</div></div></div>
-    </div>
-
     <div class="rp-grid-2">
       <div class="rp-card">
-        <div class="rp-card-head"><h3>✅ Subjects Taken / Passed</h3></div>
+        <div class="rp-card-head"><h3>📚 Current Subjects</h3></div>
         ${taken.length ? taken.map(t => {
           const c = courses.find(x => String(x.id) === String(t.course_id));
+          let badge = '';
+          if (t.status === 'Taken') badge = '<span class="rp-badge green">Taken</span>';
+          else if (t.status === 'Enrolled') badge = '<span class="rp-badge gold">Enrolled (Pending Payment)</span>';
+          else badge = `<span class="rp-badge grey">${esc(t.status)}</span>`;
+
           return `
-            <div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid #eee;">
+            <div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid #eee; align-items: center;">
               <div>
                 <div style="font-size:13.2px;font-weight:600">${esc(c ? c.code : '')} — ${esc(c ? c.title : '')}</div>
-                <div class="rp-hint">${esc(t.term || 'Recorded')}</div>
+                <div class="rp-hint">${c ? c.units : 0} units</div>
               </div>
-              <div style="text-align:right">
-                <div style="font-weight:800">${esc(t.grade || '—')}</div>
-                <span class="rp-badge ${t.status === 'Passed' ? 'green' : 'red'}">${esc(t.status)}</span>
+              <div style="display:flex; gap: 8px; align-items: center;">
+                ${badge}
+                ${t.status === 'Enrolled' ? `
+                  <button class="rp-btn rp-btn-primary rp-btn-sm" data-action="facultyApproveSubject" data-id="${t.id}" data-student="${student.id}">Approve Payment</button>
+                ` : ''}
+                <button class="rp-btn rp-btn-danger rp-btn-sm" data-action="facultyRemoveSubject" data-id="${t.id}" data-student="${student.id}">✕</button>
               </div>
             </div>
           `;
-        }).join('') : '<div class="rp-empty">No subjects recorded yet.</div>'}
+        }).join('') : '<div class="rp-empty">No subjects assigned yet.</div>'}
       </div>
 
       <div class="rp-card">
-        <div class="rp-card-head"><h3>🎯 Subjects They Can Take</h3></div>
-        ${canTake.length ? canTake.map(c => `
-          <div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid #eee;">
-            <div>
-              <div style="font-size:13.2px;font-weight:600">${esc(c.code)} — ${esc(c.title)}</div>
-              <div class="rp-hint">${c.units} units</div>
-            </div>
-            <span class="rp-badge gold">Available</span>
-          </div>
-        `).join('') : '<div class="rp-empty">No eligible subjects left.</div>'}
+        <div class="rp-card-head"><h3>➕ Add Subject</h3></div>
+        <form id="facultyAddSubjectForm" style="display:flex; gap:10px; flex-direction: column;">
+          <input type="hidden" name="student_id" value="${student.id}">
+          <select class="rp-input" name="course_id" required>
+            <option value="">Select a course to add...</option>
+            ${availableToAdd.map(c => `<option value="${c.id}">${esc(c.code)} — ${esc(c.title)}</option>`).join('')}
+          </select>
+          <select class="rp-input" name="status" required>
+            <option value="Enrolled">Enrolled (Waiting for Payment)</option>
+            <option value="Taken">Taken (Already Passed)</option>
+          </select>
+          <button type="submit" class="rp-btn rp-btn-primary" style="justify-content: center;">Add Subject</button>
+        </form>
       </div>
     </div>
   `;
