@@ -178,12 +178,12 @@ window.tempAddSubject = (studentId) => {
   const units = text.match(/\((\d+)\s*units\)/)[1];
 
   window.tempStudentSubjects.push({ courseId, code, title, units });
-  renderAll(); // Re-render immediately to update dropdown & list
+  renderAll(); // Instantly updates UI and removes from dropdown
 };
 
 window.removeTempSubject = (idx) => {
   window.tempStudentSubjects.splice(idx, 1);
-  renderAll(); // Re-render to put subject back in dropdown
+  renderAll(); // Instantly updates UI and puts subject back in dropdown
 };
 
 window.confirmStudentSubjects = async (studentId) => {
@@ -201,7 +201,6 @@ window.confirmStudentSubjects = async (studentId) => {
   }
 };
 
-// THIS IS THE FIX FOR THE PRESET BUTTON
 window.facultyLoadPresetToTemp = async (presetId) => {
   try {
     const presetSubs = await supa('preset_subjects', { match: { preset_id: presetId } });
@@ -234,8 +233,7 @@ window.facultyLoadPresetToTemp = async (presetId) => {
       toast('No new subjects to add (already in list or confirmed).', 'warn');
     }
     
-    // THIS forces the screen to redraw with the new temporary subjects
-    renderAll(); 
+    renderAll();
     
   } catch (err) {
     console.error(err);
@@ -363,6 +361,11 @@ document.addEventListener('click', async (e) => {
     window.facultySelectedStudent = Number(btn.dataset.id);
     window.tempStudentSubjects = []; 
     renderAll();
+    return;
+  }
+
+  if (action === 'facultyLoadPresetToTemp') {
+    await window.facultyLoadPresetToTemp(Number(btn.dataset.preset));
     return;
   }
 
