@@ -70,7 +70,7 @@ export async function renderFacultyProgress() {
       const programCourses = courses.filter(c => String(c.program_id) === String(progId) || String(c.program_id) === '0');
       const taken = subjects.filter(s => String(s.user_id) === String(student.id));
       
-      // Calculate what's available (exclude confirmed AND excluded from temp list)
+      // Calculate what's available (exclude confirmed AND exclude from temp list)
       const confirmedIds = taken.map(t => String(t.course_id));
       const tempIds = window.tempStudentSubjects.map(t => String(t.courseId));
       
@@ -135,7 +135,7 @@ export async function renderFacultyProgress() {
                         <div style="font-weight:600; font-size:13.5px;">${esc(mp.name)}</div>
                         <div class="rp-hint">${subCount} subjects</div>
                       </div>
-                      <button class="rp-btn rp-btn-primary rp-btn-sm" data-action="facultyLoadPresetToTemp" data-preset="${mp.id}">Add Preset to List</button>
+                      <button type="button" class="rp-btn rp-btn-primary rp-btn-sm" data-action="facultyLoadPresetToTemp" data-preset="${mp.id}">Add Preset to List</button>
                     </div>
                   `;
                 }).join('')}
@@ -425,7 +425,6 @@ export async function facultyEditPresetModal(presetId) {
                 <div class="field">
                   <label>Program</label>
                   <select class="rp-input" id="preset_prog" required>
-                    <!-- GENERAL REMOVED -->
                     <option value="1" ${preset.program_id === '1' ? 'selected' : ''}>BEEd</option>
                     <option value="2" ${preset.program_id === '2' ? 'selected' : ''}>BSEd</option>
                     <option value="8" ${preset.program_id === '8' ? 'selected' : ''}>BSCS</option>
