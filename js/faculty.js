@@ -303,40 +303,40 @@ export async function facultyEditCourseModal(courseId) {
         </div>
         <div class="rp-modal-body">
           <form id="facultyEditCourseForm">
-            <input type="hidden" name="id" value="${c.id}">
+            <input type="hidden" name="id" id="edit_course_id" value="${c.id}">
             <div class="field-row">
-              <div class="field"><label>Course Code</label><input class="rp-input" name="code" value="${esc(c.code)}" required></div>
-              <div class="field"><label>Units</label><input class="rp-input" type="number" name="units" value="${c.units}" required></div>
+              <div class="field"><label>Course Code</label><input class="rp-input" id="edit_course_code" name="code" value="${esc(c.code)}" required></div>
+              <div class="field"><label>Units</label><input class="rp-input" id="edit_course_units" type="number" name="units" value="${c.units}" required></div>
             </div>
-            <div class="field"><label>Title</label><input class="rp-input" name="title" value="${esc(c.title)}" required></div>
+            <div class="field"><label>Title</label><input class="rp-input" id="edit_course_title" name="title" value="${esc(c.title)}" required></div>
             <div class="field-row">
               <div class="field">
                 <label>Day</label>
-                <select class="rp-input" name="schedule_day" required>
+                <select class="rp-input" id="edit_course_day" name="schedule_day" required>
                   ${DAYS.map(d => `<option value="${d}" ${c.schedule_day === d ? 'selected' : ''}>${d}</option>`).join('')}
                 </select>
               </div>
               <div class="field-row" style="grid-template-columns: 1fr 1fr; gap: 8px;">
                 <div class="field">
                   <label>Start Time</label>
-                  <input type="time" class="rp-input" name="schedule_time_start" value="${startTime}" required>
+                  <input type="time" class="rp-input" id="edit_course_start" name="schedule_time_start" value="${startTime}" required>
                 </div>
                 <div class="field">
                   <label>End Time</label>
-                  <input type="time" class="rp-input" name="schedule_time_end" value="${endTime}" required>
+                  <input type="time" class="rp-input" id="edit_course_end" name="schedule_time_end" value="${endTime}" required>
                 </div>
               </div>
             </div>
             <div class="field">
               <label>Program</label>
-              <select class="rp-input" name="program_id" required>
+              <select class="rp-input" id="edit_course_prog" name="program_id" required>
                 <option value="0" ${c.program_id === '0' ? 'selected' : ''}>General (All Programs)</option>
                 <option value="1" ${c.program_id === '1' ? 'selected' : ''}>BEEd (Elementary Education)</option>
                 <option value="2" ${c.program_id === '2' ? 'selected' : ''}>BSEd (Secondary Education)</option>
                 <option value="8" ${c.program_id === '8' ? 'selected' : ''}>BSCS (Computer Science)</option>
               </select>
             </div>
-            <button type="submit" class="rp-btn rp-btn-primary" style="margin-top: 20px; width:100%;">Save Changes</button>
+            <button type="button" class="rp-btn rp-btn-primary" data-action="facultySaveEditedCourse" style="margin-top: 20px; width:100%;">Save Changes</button>
           </form>
         </div>
       </div>
