@@ -3,7 +3,7 @@ import { supa } from './api.js';
 import { session, loadSession, doLogin, doRegister, doLogout } from './auth.js';
 import { renderStudentDashboard, renderApply } from './student.js';
 import { renderAdminDashboard, renderAdminStudents, renderAdminCourses, renderAdminEnrollments, adminOpenStudentModal } from './admin.js';
-import { renderFacultyDashboard, renderFacultyProgress, renderFacultyPresets, facultyEditPresetModal } from './faculty.js';
+import { renderFacultyDashboard, renderFacultyProgress, renderFacultyPresets, renderFacultyCourses, facultyEditPresetModal, facultyEditCourseModal } from './faculty.js';
 
 loadSession();
 
@@ -27,7 +27,6 @@ export async function renderAll() {
   if (session.role === 'admin') { renderAdminLayout(); return; }
   if (session.role === 'faculty') { renderFacultyLayout(); return; }
 
-  // STUDENT NAVBAR
   navbar.innerHTML = `
     <div class="nav-brand">
       <div class="nav-brand-text"><span class="b1">UNIDA</span><span class="b2">CHRISTIAN COLLEGES</span></div>
@@ -149,11 +148,13 @@ async function renderFacultyLayout() {
 window.setFacultyView = (view) => { 
   window.currentView = view; 
   window.facultySelectedStudent = null; 
+  window.tempStudentSubjects = [];
   renderAll(); 
 };
 
 window.closeFacultyStudent = () => {
   window.facultySelectedStudent = null;
+  window.tempStudentSubjects = [];
   renderAll();
 };
 
@@ -166,6 +167,11 @@ window.tempAddSubject = (studentId) => {
   if (!sel.value) return toast('Select a subject first', 'error');
   const courseId = Number(sel.value);
   
+  // Prevent adding if already in temp
+  if (window.tempStudentSubjects.some(s => String(s.courseId) === String(courseId))) {
+    return toast('Subject is already in the list.', 'error');
+  }
+
   const opt = sel.options[sel.selectedIndex];
   const text = opt.text;
   const code = text.split('—')[0].trim();
@@ -223,21 +229,44 @@ window.confirmStudentSubjects = async (studentId) => {
   }
 };
 
-window.facultyApplyPreset = async (presetId, studentId) => {
+// Loads the preset's subjects into the temporary array instead of the database
+window.facultyLoadPresetToTemp = async (presetId) => {
   try {
     const presetSubs = await supa('preset_subjects', { match: { preset_id: presetId } });
-    if (!presetSubs.length) return toast('Preset has no subjects.', 'error');
-
+    const courses = await supa('courses');
+    
+    let addedCount = 0;
     for (const ps of presetSubs) {
-      const existing = await supa('student_subjects', { match: { user_id: studentId, course_id: ps.course_id } });
-      if (!existing.length) {
-        await supa('student_subjects', { method: 'POST', body: { user_id: Number(studentId), course_id: Number(ps.course_id), status: 'Enrolled' } });
+      // Check if already confirmed or already in temp list
+      const courseId = ps.course_id;
+      
+      const isConfirmed = document.getElementById('tempSubjectList')?.innerHTML.includes(`data-id="${courseId}"`) || 
+                          document.querySelector('.rp-card .rp-badge.green') !== null; // fallback check
+                          
+      if (window.tempStudentSubjects.some(s => String(s.courseId) === String(courseId))) continue;
+
+      const c = courses.find(x => String(x.id) === String(courseId));
+      if (c) {
+        window.tempStudentSubjects.push({ 
+          courseId: c.id, 
+          code: c.code, 
+          title: c.title, 
+          units: c.units 
+        });
+        addedCount++;
       }
     }
-    toast('Preset applied to student!');
-    renderAll();
+    
+    if (addedCount > 0) {
+      toast(`Added ${addedCount} subjects from preset.`);
+      // Re-render the specific student modal view
+      renderAll(); 
+    } else {
+      toast('All subjects in this preset are already in the list.', 'warn');
+    }
   } catch (err) {
-    toast('Failed to apply preset.', 'error');
+    console.error(err);
+    toast('Failed to load preset.', 'error');
   }
 };
 
@@ -301,7 +330,6 @@ window.removePresetSubjectTemp = (psId, courseId) => {
   }
 };
 
-// GLOBAL CLICKS
 document.addEventListener('click', async (e) => {
   const navBtn = e.target.closest('[data-nav]');
   if (navBtn) { window.currentView = navBtn.dataset.nav; window.currentStep = 1; renderAll(); return; }
@@ -387,6 +415,11 @@ document.addEventListener('click', async (e) => {
     return;
   }
 
+  if (action === 'facultyEditCourse') {
+    await facultyEditCourseModal(Number(btn.dataset.id));
+    return;
+  }
+
   if (action === 'facultySavePreset') {
     const id = document.getElementById('preset_edit_id').value;
     const name = document.getElementById('preset_name').value;
@@ -445,6 +478,54 @@ document.addEventListener('click', async (e) => {
     return;
   }
 
+  if (action === 'facultySaveEditedCourse') {
+    const id = Number(document.getElementById('edit_course_id').value);
+    const code = document.getElementById('edit_course_code').value;
+    const title = document.getElementById('edit_course_title').value;
+    const units = Number(document.getElementById('edit_course_units').value);
+    const day = document.getElementById('edit_course_day').value;
+    const start = document.getElementById('edit_course_start').value;
+    const end = document.getElementById('edit_course_end').value;
+    const prog = Number(document.getElementById('edit_course_prog').value);
+
+    if (!code || !title || !units || !day || !start || !end) {
+      return toast('Please fill out all fields.', 'error');
+    }
+
+    const payload = {
+      code: code,
+      title: title,
+      units: units,
+      schedule_day: day,
+      schedule_time: `${start} - ${end}`,
+      program_id: prog
+    };
+
+    try {
+      await supa('courses', { method: 'PATCH', match: { id: id }, body: payload });
+      toast('Subject updated successfully.');
+      document.getElementById('facultyEditCourseModal')?.remove();
+      renderAll();
+    } catch (err) {
+      console.error(err);
+      toast('Failed to update subject.', 'error');
+    }
+    return;
+  }
+
+  if (action === 'facultyDeleteCourse') {
+    const courseId = Number(btn.dataset.id);
+    if (!confirm('Are you sure you want to delete this subject from the curriculum?')) return;
+    try {
+      await supa('courses', { method: 'DELETE', match: { id: courseId } });
+      toast('Subject deleted.');
+      renderAll();
+    } catch (err) {
+      toast('Cannot delete subject. It might be tied to student records.', 'error');
+    }
+    return;
+  }
+
   // ADMIN ACTIONS
   if (action === 'adminOpenStudent') {
     await adminOpenStudentModal(Number(btn.dataset.id)); return;
@@ -472,7 +553,6 @@ document.addEventListener('click', async (e) => {
   }
 });
 
-// GLOBAL CHANGE LISTENERS
 document.addEventListener('change', async (e) => {
   const key = e.target.dataset.change;
   if (!key) return;
@@ -489,6 +569,9 @@ document.addEventListener('change', async (e) => {
   } else if (key === 'presetFilterYear') {
     window.presetFilterYear = e.target.value;
     renderAll();
+  } else if (key === 'facultyCourseFilterProg') {
+    window.facultyCourseFilterProg = e.target.value;
+    renderAll();
   } else if (key === 'facultyRegularity') {
     const studentId = Number(e.target.dataset.student);
     const isRegular = e.target.value === 'true';
@@ -499,7 +582,6 @@ document.addEventListener('change', async (e) => {
   }
 });
 
-// GLOBAL FORMS
 document.addEventListener('submit', async (e) => {
   e.preventDefault();
   
@@ -534,6 +616,32 @@ document.addEventListener('submit', async (e) => {
     renderAll();
     return;
   }
+
+  if (e.target.id === 'facultyCreateCourseForm') {
+    const fd = new FormData(e.target);
+    const start = fd.get('schedule_time_start');
+    const end = fd.get('schedule_time_end');
+    const timeStr = `${start} - ${end}`;
+
+    const payload = {
+      code: fd.get('code'),
+      title: fd.get('title'),
+      units: Number(fd.get('units')),
+      schedule_day: fd.get('schedule_day'),
+      schedule_time: timeStr,
+      program_id: Number(fd.get('program_id'))
+    };
+
+    try {
+      await supa('courses', { method: 'POST', body: payload });
+      toast('Subject created successfully.');
+      e.target.reset();
+      renderAll();
+    } catch (err) {
+      toast('Failed to create subject. Check if code already exists.', 'error');
+    }
+    return;
+  }
 });
 
 window.logout = () => { doLogout(() => renderAll()); };
@@ -545,5 +653,6 @@ window.facultyFilterYear = '';
 window.facultyFilterProg = '';
 window.presetFilterProg = 'all';
 window.presetFilterYear = 'all';
+window.facultyCourseFilterProg = 'all';
 window.facultySelectedStudent = null;
 renderAll();
