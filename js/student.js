@@ -2,6 +2,17 @@ import { esc, toast } from './utils.js';
 import { supa } from './api.js';
 import { session } from './auth.js';
 
+// Helper for the timetable
+function parseTimeToMin(t) {
+  const clean = t.replace(/\s*[AP]M/i, '');
+  const parts = clean.split(':');
+  let h = parseInt(parts[0], 10);
+  const m = parseInt(parts[1], 10);
+  if (t.toUpperCase().includes('PM') && h < 12) h += 12;
+  if (t.toUpperCase().includes('AM') && h === 12) h = 0;
+  return h * 60 + m;
+}
+
 export async function renderStudentDashboard() {
   const user = session;
   const apps = await supa('applications', { match: { user_id: user.userId } }).catch(() => []);
@@ -352,7 +363,7 @@ export async function renderPaymentTab(app, subjects, courses) {
   `;
 }
 
-// --- REDESIGNED SCHEDULE TAB ---
+// --- REDESIGNED SCHEDULE TAB (GRAPH/TIMETABLE) ---
 export async function renderScheduleTab(app, subjects, courses) {
   let pr = app.program || {};
   if (typeof pr === 'string') { try { pr = JSON.parse(pr); } catch(e){} }
@@ -360,65 +371,76 @@ export async function renderScheduleTab(app, subjects, courses) {
   const PROG_NAMES = { '1': 'BEEd', '2': 'BSEd', '8': 'BSCS' };
   const progName = PROG_NAMES[pr.preferred] || 'Unknown';
 
-  // Group subjects by day
-  const daysOfWeek = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-  const scheduleByDay = {
-    'Monday': [], 'Tuesday': [], 'Wednesday': [], 'Thursday': [], 'Friday': [], 'Saturday': []
-  };
+  const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  
+  let blocks = [];
+  let minTime = 8 * 60; // 8 AM default
+  let maxTime = 17 * 60; // 5 PM default
 
   subjects.forEach(s => {
     const c = courses.find(x => String(x.id) === String(s.course_id));
-    if (c && c.schedule_day && daysOfWeek.includes(c.schedule_day)) {
-      scheduleByDay[c.schedule_day].push(c);
+    if (c && c.schedule_day && c.schedule_time && c.schedule_time.includes('-')) {
+      const dayIndex = days.indexOf(c.schedule_day);
+      if (dayIndex === -1) return;
+
+      try {
+        const [startStr, endStr] = c.schedule_time.split('-').map(x => x.trim());
+        const startMin = parseTimeToMin(startStr);
+        const endMin = parseTimeToMin(endStr);
+        
+        if (startMin < minTime) minTime = startMin;
+        if (endMin > maxTime) maxTime = endMin;
+
+        blocks.push({ day: dayIndex, startMin, endMin, course: c });
+      } catch (e) { console.error("Error parsing time", c.schedule_time); }
     }
   });
 
-  // Sort classes within each day by start time
-  daysOfWeek.forEach(day => {
-    scheduleByDay[day].sort((a, b) => {
-      const timeA = (a.schedule_time || '').split('-')[0].trim();
-      const timeB = (b.schedule_time || '').split('-')[0].trim();
-      return timeA.localeCompare(timeB);
-    });
+  const startHour = Math.max(0, Math.floor(minTime / 60) - 1);
+  const endHour = Math.min(24, Math.ceil(maxTime / 60) + 1);
+  
+  const slotsCount = (endHour - startHour) * 2;
+
+  let tableHtml = `<div class="timetable">`;
+  
+  tableHtml += `<div class="tt-header" style="grid-row:1; grid-column:1;">Time</div>`;
+  days.forEach((d, i) => {
+    tableHtml += `<div class="tt-header" style="grid-row:1; grid-column:${i+2};">${d.slice(0,3)}</div>`;
   });
 
-  // Build the HTML for the schedule board
-  let scheduleHtml = '';
-  daysOfWeek.forEach(day => {
-    const classes = scheduleByDay[day];
-    if (classes.length > 0) {
-      scheduleHtml += `
-        <div class="rp-card" style="margin-bottom: 20px;">
-          <div class="rp-card-head" style="background:var(--mint-100); padding:12px 18px; border-radius:12px 12px 0 0; border-bottom:1px solid var(--mint-200);">
-            <h3 style="margin:0; font-size:16px; color:var(--mint-800); letter-spacing:1px; text-transform:uppercase;">${day}</h3>
-          </div>
-          <div style="padding: 10px 18px 18px;">
-            ${classes.map((c, index) => `
-              <div style="display:flex; gap:16px; padding: 16px 0; ${index !== classes.length - 1 ? 'border-bottom: 1px dashed #ccc;' : ''}">
-                <div style="min-width: 130px;">
-                  <div style="font-weight:800; font-size:14px; color:var(--mint-700);">
-                    ${esc(c.schedule_time || 'TBA')}
-                  </div>
-                </div>
-                <div style="flex:1;">
-                  <div style="font-weight:800; font-size:15px; color:var(--ink); margin-bottom:4px;">
-                    ${esc(c.code)}
-                  </div>
-                  <div style="font-size:14px; color:var(--muted);">
-                    ${esc(c.title)}
-                  </div>
-                </div>
-              </div>
-            `).join('')}
-          </div>
-        </div>
-      `;
+  for (let i = 0; i < slotsCount; i++) {
+    const row = i + 2; 
+    const hour = startHour + Math.floor(i / 2);
+    const min = (i % 2) * 30;
+    
+    let timeLabel = '';
+    if (min === 0) {
+      const ampm = hour >= 12 ? 'PM' : 'AM';
+      const displayHour = hour > 12 ? hour - 12 : (hour === 0 ? 12 : hour);
+      timeLabel = `${displayHour} ${ampm}`;
     }
-  });
-
-  if (!scheduleHtml) {
-    scheduleHtml = `<div class="rp-empty">No schedule assigned yet.</div>`;
+    
+    tableHtml += `<div class="tt-time" style="grid-row:${row}; grid-column:1;">${timeLabel}</div>`;
   }
+
+  blocks.forEach(b => {
+    const startRow = 2 + Math.floor((b.startMin - startHour * 60) / 30);
+    const endRow = 2 + Math.ceil((b.endMin - startHour * 60) / 30);
+    const gridRow = `${startRow} / ${endRow}`;
+    const gridColumn = `${b.day + 2} / ${b.day + 3}`;
+    
+    const colors = ['var(--mint-500)', 'var(--gold-500)', '#8e44ad', '#e67e22', '#2980b9'];
+    const color = colors[b.course.id % colors.length];
+
+    tableHtml += `
+      <div class="tt-block" style="grid-row:${gridRow}; grid-column:${gridColumn}; background:${color};">
+        <div class="tt-code">${esc(b.course.code)}</div>
+        <div class="tt-title">${esc(b.course.title)}</div>
+      </div>
+    `;
+  });
+
+  tableHtml += `</div>`;
 
   return `
     <div class="progress-card" style="margin-bottom:20px;">
@@ -431,8 +453,8 @@ export async function renderScheduleTab(app, subjects, courses) {
       </div>
     </div>
 
-    <div class="rp-grid-2">
-      ${scheduleHtml}
+    <div style="overflow-x: auto; padding-bottom: 20px;">
+      ${tableHtml}
     </div>
   `;
 }
