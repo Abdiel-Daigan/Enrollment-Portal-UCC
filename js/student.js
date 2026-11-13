@@ -178,20 +178,34 @@ function renderStepEducation(app) {
 function renderStepProgram(app) {
   let p = app.program || {};
   if (typeof p === 'string') { try { p = JSON.parse(p); } catch (e) {} }
+  
   const PROGRAMS = [
     { id: '1', code: 'BEEd', name: 'Bachelor of Elementary Education' },
     { id: '2', code: 'BSEd', name: 'Bachelor of Secondary Education' },
     { id: '8', code: 'BSCS', name: 'Bachelor of Science in Computer Science' }
   ];
+
   return `
     <h2>Program Choice</h2>
     <form id="stepForm" class="apply-form-body" data-step="3">
-      <div class="field" style="max-width:520px">
-        <label>Preferred Program *</label>
-        <select name="preferred" required>
-          <option value="">Select a program</option>
-          ${PROGRAMS.map(pr => `<option value="${pr.id}" ${String(p.preferred) === String(pr.id) ? 'selected' : ''}>${esc(pr.code)} — ${esc(pr.name)}</option>`).join('')}
-        </select>
+      <div class="field-row" style="max-width:600px">
+        <div class="field">
+          <label>Preferred Program *</label>
+          <select name="preferred" required>
+            <option value="">Select a program</option>
+            ${PROGRAMS.map(pr => `<option value="${pr.id}" ${String(p.preferred) === String(pr.id) ? 'selected' : ''}>${esc(pr.code)} — ${esc(pr.name)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="field">
+          <label>Year Level *</label>
+          <select name="year_level" required>
+            <option value="">Select year level</option>
+            <option value="1" ${String(p.year_level) === '1' ? 'selected' : ''}>1st Year</option>
+            <option value="2" ${String(p.year_level) === '2' ? 'selected' : ''}>2nd Year</option>
+            <option value="3" ${String(p.year_level) === '3' ? 'selected' : ''}>3rd Year</option>
+            <option value="4" ${String(p.year_level) === '4' ? 'selected' : ''}>4th Year</option>
+          </select>
+        </div>
       </div>
     </form>
     <div class="apply-footer">
