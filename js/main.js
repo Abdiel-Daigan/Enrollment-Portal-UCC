@@ -4,6 +4,7 @@ import { session, loadSession, doLogin, doRegister, doLogout } from './auth.js';
 import { renderStudentDashboard, renderApply, renderPaymentTab, renderScheduleTab, renderRegistrationTab } from './student.js';
 import { renderAdminDashboard, renderAdminStudents, renderAdminCourses, renderAdminEnrollments, adminOpenStudentModal } from './admin.js';
 import { renderFacultyDashboard, renderFacultyProgress, renderFacultyPresets, renderFacultyCourses, facultyEditPresetModal, facultyEditCourseModal } from './faculty.js';
+import { renderAccountingDashboard, renderAccountingLogs, renderAccountingSettings, renderAccountingStudents, accountingManageStudentModal } from './accounting.js';
 
 loadSession();
 
@@ -26,12 +27,15 @@ export async function renderAll() {
 
   if (session.role === 'admin') { renderAdminLayout(); return; }
   if (session.role === 'faculty') { renderFacultyLayout(); return; }
+  if (session.role === 'accounting') { renderAccountingLayout(); return; }
 
   // --- STUDENT ROUTING & DYNAMIC NAVBAR ---
   const apps = await supa('applications', { match: { user_id: session.userId } }).catch(() => []);
   const app = apps[0] || {};
   const subjects = await supa('student_subjects', { match: { user_id: session.userId } }).catch(() => []);
   const courses = await supa('courses').catch(() => []);
+  const settingsRes = await supa('system_settings', { match: { id: 1 } }).catch(() => []);
+  const settings = settingsRes[0] || { tuition_per_unit: 444, misc_fee: 5452, reg_fee: 1000 };
 
   const hasSubjects = subjects.length > 0;
   const hasPaid = Number(app.amount_paid || 0) > 0;
@@ -44,7 +48,7 @@ export async function renderAll() {
     ];
   } else {
     if (hasPaid) {
-      // NEW ORDER: Schedule first, then Payment, then Registration
+      // Schedule first, then Payment, then Registration
       navItems = [
         { id: 'schedule', label: 'Schedule' },
         { id: 'payment', label: 'Payment' },
@@ -56,13 +60,11 @@ export async function renderAll() {
   }
 
   let currentView = window.currentView || 'dashboard';
-  // If the current view is not in the allowed tabs, reset to the first one
   if (!navItems.find(n => n.id === currentView)) {
     currentView = navItems[0].id; 
     window.currentView = currentView;
   }
 
-  // Render Student Navbar
   navbar.innerHTML = `
     <div class="nav-brand">
       <div class="nav-brand-text"><span class="b1">UNIDA</span><span class="b2">CHRISTIAN COLLEGES</span></div>
@@ -78,36 +80,36 @@ export async function renderAll() {
     </div>
   `;
 
-  // Render Page Content
   pageWrap.innerHTML = '<div class="progress-card">Loading...</div>';
 
   if (currentView === 'dashboard') pageWrap.innerHTML = await renderStudentDashboard();
   else if (currentView === 'apply') pageWrap.innerHTML = await renderApply();
-  else if (currentView === 'payment') pageWrap.innerHTML = await renderPaymentTab(app, subjects, courses);
+  else if (currentView === 'payment') pageWrap.innerHTML = await renderPaymentTab(app, subjects, courses, settings);
   else if (currentView === 'schedule') pageWrap.innerHTML = await renderScheduleTab(app, subjects, courses);
-  else if (currentView === 'registration') pageWrap.innerHTML = await renderRegistrationTab(app, subjects, courses);
+  else if (currentView === 'registration') pageWrap.innerHTML = await renderRegistrationTab(app, subjects, courses, settings);
 }
 
-// --- SIMULATED PAYMENT LOGIC ---
+// --- SIMULATED PAYMENT (STUDENT) ---
 window.payTuition = async (type, total, currentPaid) => {
-  let amountToAdd = 0;
-  const balance = Number(total) - Number(currentPaid);
-
-  if (type === 'half') {
-    amountToAdd = balance / 2;
-  } else {
-    amountToAdd = balance;
-  }
-
+  let amountToAdd = type === 'half' ? (Number(total) - Number(currentPaid)) / 2 : (Number(total) - Number(currentPaid));
   if (!confirm(`Simulate paying ₱${amountToAdd.toLocaleString('en-PH', {minimumFractionDigits:2})}?`)) return;
 
   try {
     const newPaid = Number(currentPaid) + Number(amountToAdd);
+    const refNo = 'PAY-ONL-' + Date.now().toString().slice(-6);
 
-    await supa('applications', {
-      method: 'PATCH',
-      match: { user_id: session.userId },
-      body: { amount_paid: newPaid }
+    await supa('applications', { method: 'PATCH', match: { user_id: session.userId }, body: { amount_paid: newPaid } });
+    
+    // Log the payment
+    await supa('payment_logs', {
+      method: 'POST',
+      body: {
+        user_id: session.userId,
+        amount: amountToAdd,
+        reference_no: refNo,
+        payment_type: type === 'half' ? 'Downpayment' : 'Full Payment',
+        processed_by: 'Online'
+      }
     });
 
     toast('Payment successful!');
@@ -144,6 +146,7 @@ function renderAuthPage() {
   `;
 }
 
+// --- ADMIN LAYOUT ---
 async function renderAdminLayout() {
   const pageWrap = $('#pageWrap');
   $('#navbar').classList.add('hidden');
@@ -181,6 +184,7 @@ async function renderAdminLayout() {
 
 window.setAdminView = (view) => { window.currentView = view; renderAll(); };
 
+// --- FACULTY LAYOUT ---
 async function renderFacultyLayout() {
   const pageWrap = $('#pageWrap');
   $('#navbar').classList.add('hidden');
@@ -229,6 +233,45 @@ window.closeFacultyStudent = () => {
   renderAll();
 };
 
+// --- ACCOUNTING LAYOUT ---
+async function renderAccountingLayout() {
+  const pageWrap = $('#pageWrap');
+  $('#navbar').classList.add('hidden');
+  
+  pageWrap.innerHTML = `
+    <div class="role-shell" style="min-height: 100vh;">
+      <aside class="role-sidebar">
+        <div class="role-side-brand"><strong>Accounting Dept</strong><span>Finance</span></div>
+        <nav class="role-nav">
+          <button class="role-nav-item ${window.currentView === 'dashboard' ? 'active' : ''}" onclick="window.setAccountingView('dashboard')"><span class="rni">🏠</span> Dashboard</button>
+          <button class="role-nav-item ${window.currentView === 'logs' ? 'active' : ''}" onclick="window.setAccountingView('logs')"><span class="rni">🧾</span> Payment Logs</button>
+          <button class="role-nav-item ${window.currentView === 'students' ? 'active' : ''}" onclick="window.setAccountingView('students')"><span class="rni">👥</span> Student Payments</button>
+          <button class="role-nav-item ${window.currentView === 'settings' ? 'active' : ''}" onclick="window.setAccountingView('settings')"><span class="rni">⚙️</span> Fee Settings</button>
+        </nav>
+        <div class="role-side-foot"><button onclick="window.logout()">Sign out</button></div>
+      </aside>
+      <div class="role-main">
+        <header class="role-topbar">
+          <div><h1>${window.currentView ? window.currentView.toUpperCase() : 'DASHBOARD'}</h1><div class="rt-sub">Manage student payments</div></div>
+          <div class="rt-user"><div class="rt-who"><strong>${esc(session.name)}</strong><span>Accounting</span></div><div class="rt-avatar">${initials(session.name)}</div></div>
+        </header>
+        <div class="role-content" id="accContent"><div class="rp-empty">Loading...</div></div>
+      </div>
+    </div>
+  `;
+
+  const content = $('#accContent');
+  const view = window.currentView || 'dashboard';
+
+  if (view === 'dashboard') content.innerHTML = await renderAccountingDashboard();
+  else if (view === 'logs') content.innerHTML = await renderAccountingLogs();
+  else if (view === 'students') content.innerHTML = await renderAccountingStudents();
+  else if (view === 'settings') content.innerHTML = await renderAccountingSettings();
+}
+
+window.setAccountingView = (view) => { window.currentView = view; renderAll(); };
+
+// --- FACULTY TEMP STATE & HELPERS ---
 window.tempStudentSubjects = [];
 window.tempPresetSubjects = [];
 window.tempDeletedPSIds = [];
@@ -287,12 +330,7 @@ window.facultyLoadPresetToTemp = async (presetId) => {
 
       const c = courses.find(x => String(x.id) === String(courseId));
       if (c) {
-        window.tempStudentSubjects.push({ 
-          courseId: c.id, 
-          code: c.code, 
-          title: c.title, 
-          units: c.units 
-        });
+        window.tempStudentSubjects.push({ courseId: c.id, code: c.code, title: c.title, units: c.units });
         addedCount++;
       }
     }
@@ -304,7 +342,6 @@ window.facultyLoadPresetToTemp = async (presetId) => {
     }
     
     renderAll();
-    
   } catch (err) {
     console.error(err);
     toast('Failed to load preset.', 'error');
@@ -371,6 +408,11 @@ window.removePresetSubjectTemp = (psId, courseId) => {
   }
 };
 
+window.searchAcc = () => {
+  renderAll();
+};
+
+// --- GLOBAL CLICKS ---
 document.addEventListener('click', async (e) => {
   const navBtn = e.target.closest('[data-nav]');
   if (navBtn) { window.currentView = navBtn.dataset.nav; window.currentStep = 1; renderAll(); return; }
@@ -473,12 +515,7 @@ document.addEventListener('click', async (e) => {
 
     if (!name) return toast('Preset name is required.', 'error');
 
-    const payload = {
-      name: name,
-      program_id: Number(prog),
-      year_level: Number(year),
-      semester: sem
-    };
+    const payload = { name: name, program_id: Number(prog), year_level: Number(year), semester: sem };
 
     try {
       let presetId = id;
@@ -594,8 +631,15 @@ document.addEventListener('click', async (e) => {
     } catch (err) { toast('Failed to approve.', 'error'); }
     return;
   }
+
+  // ACCOUNTING ACTIONS
+  if (action === 'accManageStudent') {
+    await accountingManageStudentModal(Number(btn.dataset.id));
+    return;
+  }
 });
 
+// --- GLOBAL CHANGE LISTENERS ---
 document.addEventListener('change', async (e) => {
   const key = e.target.dataset.change;
   if (!key) return;
@@ -625,6 +669,7 @@ document.addEventListener('change', async (e) => {
   }
 });
 
+// --- GLOBAL FORMS ---
 document.addEventListener('submit', async (e) => {
   e.preventDefault();
   
@@ -685,17 +730,7 @@ document.addEventListener('submit', async (e) => {
     }
     return;
   }
-});
 
-window.logout = () => { doLogout(() => renderAll()); };
-
-window.currentView = 'dashboard';
-window.currentStep = 1;
-window.facultySearch = '';
-window.facultyFilterYear = '';
-window.facultyFilterProg = '';
-window.presetFilterProg = 'all';
-window.presetFilterYear = 'all';
-window.facultyCourseFilterProg = 'all';
-window.facultySelectedStudent = null;
-renderAll();
+  // ACCOUNTING FORMS
+  if (e.target.id === 'accountingSettingsForm') {
+   
