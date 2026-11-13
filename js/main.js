@@ -34,7 +34,7 @@ export async function renderAll() {
     return;
   }
 
-  // STUDENT
+  // STUDENT NAVBAR (Name + Logout Button)
   navbar.innerHTML = `
     <div class="nav-brand">
       <div class="nav-brand-text"><span class="b1">UNIDA</span><span class="b2">CHRISTIAN COLLEGES</span></div>
@@ -43,7 +43,10 @@ export async function renderAll() {
       <button class="nav-link" data-nav="dashboard">Dashboard</button>
       <button class="nav-link" data-nav="apply">Application</button>
     </div>
-    <div style="cursor:pointer" onclick="window.logout()" class="nav-user">👤</div>
+    <div style="display:flex; align-items:center; gap:16px;">
+      <span style="font-size:14px; font-weight:600; color:#fff;">${esc(session.name)}</span>
+      <button class="btn btn-outline btn-sm" onclick="window.logout()" style="color:#fff; border-color:rgba(255,255,255,0.4)">Logout</button>
+    </div>
   `;
 
   pageWrap.innerHTML = '<div class="progress-card">Loading...</div>';
@@ -295,14 +298,41 @@ document.addEventListener('submit', async (e) => {
     let app = existing[0] || { personal: {}, education: {}, program: {}, documents: {}, doc_type: null, submitted: false };
     const fd = new FormData(e.target);
 
-    if (step === 1) app.personal = { first_name: fd.get('first_name'), middle_name: fd.get('middle_name'), last_name: fd.get('last_name'), email: fd.get('email'), phone: fd.get('phone'), address: fd.get('address') };
-    else if (step === 2) app.education = { elem: { school: fd.get('elem_school'), year: fd.get('elem_year') }, jhs: { school: fd.get('jhs_school'), year: fd.get('jhs_year') }, shs: { school: fd.get('shs_school'), year: fd.get('shs_year') } };
-    else if (step === 3) app.program = { preferred: fd.get('preferred') };
+    if (step === 1) {
+      app.personal = { 
+        first_name: fd.get('first_name'), 
+        middle_name: fd.get('middle_name'), 
+        last_name: fd.get('last_name'), 
+        email: fd.get('email'), 
+        phone: fd.get('phone'), 
+        address: fd.get('address') 
+      };
+    } else if (step === 2) {
+      app.education = { 
+        elem: { school: fd.get('elem_school'), year: fd.get('elem_year') }, 
+        jhs: { school: fd.get('jhs_school'), year: fd.get('jhs_year') }, 
+        shs: { school: fd.get('shs_school'), year: fd.get('shs_year') } 
+      };
+    } else if (step === 3) {
+      // UPDATE: Save the year_level to the database
+      app.program = { 
+        preferred: fd.get('preferred'),
+        year_level: fd.get('year_level')
+      };
+    }
 
     await supa('applications', {
       method: existing.length ? 'PATCH' : 'POST',
       match: existing.length ? { user_id: user.userId } : undefined,
-      body: { user_id: user.userId, personal: app.personal, education: app.education, program: app.program, documents: app.documents || {}, doc_type: app.doc_type || null, submitted: false }
+      body: { 
+        user_id: user.userId, 
+        personal: app.personal, 
+        education: app.education, 
+        program: app.program, 
+        documents: app.documents || {}, 
+        doc_type: app.doc_type || null, 
+        submitted: false 
+      }
     });
 
     window.currentStep = step + 1;
