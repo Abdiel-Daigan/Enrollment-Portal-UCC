@@ -28,8 +28,6 @@ export async function renderAll() {
   if (session.role === 'faculty') { renderFacultyLayout(); return; }
 
   // --- STUDENT ROUTING & DYNAMIC NAVBAR ---
-  
-  // 1. Fetch all necessary data
   const apps = await supa('applications', { match: { user_id: session.userId } }).catch(() => []);
   const app = apps[0] || {};
   const subjects = await supa('student_subjects', { match: { user_id: session.userId } }).catch(() => []);
@@ -38,7 +36,6 @@ export async function renderAll() {
   const hasSubjects = subjects.length > 0;
   const hasPaid = Number(app.amount_paid || 0) > 0;
 
-  // 2. Determine available tabs
   let navItems = [];
   if (!hasSubjects) {
     navItems = [
@@ -53,14 +50,12 @@ export async function renderAll() {
     }
   }
 
-  // Default to first available tab if current view is invalid
   let currentView = window.currentView || 'dashboard';
   if (!navItems.find(n => n.id === currentView)) {
     currentView = navItems[0].id;
     window.currentView = currentView;
   }
 
-  // 3. Render Navbar
   navbar.innerHTML = `
     <div class="nav-brand">
       <div class="nav-brand-text"><span class="b1">UNIDA</span><span class="b2">CHRISTIAN COLLEGES</span></div>
@@ -76,7 +71,6 @@ export async function renderAll() {
     </div>
   `;
 
-  // 4. Render Content
   pageWrap.innerHTML = '<div class="progress-card">Loading...</div>';
 
   if (currentView === 'dashboard') pageWrap.innerHTML = await renderStudentDashboard();
@@ -89,7 +83,7 @@ export async function renderAll() {
 // --- SIMULATED PAYMENT ---
 window.payTuition = async (type, total, currentPaid) => {
   let amountToAdd = 0;
-  const balance = total - currentPaid;
+  const balance = Number(total) - Number(currentPaid);
 
   if (type === 'half') {
     amountToAdd = balance / 2;
@@ -100,7 +94,10 @@ window.payTuition = async (type, total, currentPaid) => {
   if (!confirm(`Simulate paying ₱${amountToAdd.toLocaleString('en-PH', {minimumFractionDigits:2})}?`)) return;
 
   try {
-    const newPaid = currentPaid + amountToAdd;
+    const newPaid = Number(currentPaid) + Number(amountToAdd);
+    
+    console.log("Sending payment update:", newPaid);
+
     await supa('applications', {
       method: 'PATCH',
       match: { user_id: session.userId },
@@ -111,8 +108,8 @@ window.payTuition = async (type, total, currentPaid) => {
     window.currentView = 'payment';
     renderAll();
   } catch (err) {
-    console.error(err);
-    toast('Payment failed.', 'error');
+    console.error("Payment Error Details:", err);
+    toast('Payment failed. Check console (F12) for details.', 'error');
   }
 };
 
