@@ -143,7 +143,7 @@ async function renderFacultyLayout() {
   if (view === 'dashboard') content.innerHTML = await renderFacultyDashboard();
   else if (view === 'progress') content.innerHTML = await renderFacultyProgress();
   else if (view === 'presets') content.innerHTML = await renderFacultyPresets();
-  else if (view === 'courses') content.innerHTML = await renderFacultyCourses(); // Note: You may need to add renderFacultyCourses back if I removed it in the prompt, but I kept it in the file above.
+  else if (view === 'courses') content.innerHTML = await renderFacultyCourses(); 
 }
 
 window.setFacultyView = (view) => { 
@@ -157,7 +157,6 @@ window.closeFacultyStudent = () => {
   renderAll();
 };
 
-// --- TEMP STATE FOR SUBJECT ADDITION ---
 window.tempStudentSubjects = [];
 window.tempPresetSubjects = [];
 window.tempDeletedPSIds = [];
@@ -167,7 +166,6 @@ window.tempAddSubject = (studentId) => {
   if (!sel.value) return toast('Select a subject first', 'error');
   const courseId = Number(sel.value);
   
-  // Find the course details from the global cache (we'll just inject it directly via DOM for UI)
   const opt = sel.options[sel.selectedIndex];
   const text = opt.text;
   const code = text.split('—')[0].trim();
@@ -176,7 +174,6 @@ window.tempAddSubject = (studentId) => {
 
   window.tempStudentSubjects.push({ courseId, code, title, units });
   
-  // Re-render temp list
   const listDiv = document.getElementById('tempSubjectList');
   if (listDiv) {
     listDiv.innerHTML = window.tempStudentSubjects.map((s, idx) => `
@@ -232,7 +229,6 @@ window.facultyApplyPreset = async (presetId, studentId) => {
     if (!presetSubs.length) return toast('Preset has no subjects.', 'error');
 
     for (const ps of presetSubs) {
-      // Check if student already has it
       const existing = await supa('student_subjects', { match: { user_id: studentId, course_id: ps.course_id } });
       if (!existing.length) {
         await supa('student_subjects', { method: 'POST', body: { user_id: Number(studentId), course_id: Number(ps.course_id), status: 'Enrolled' } });
@@ -245,7 +241,6 @@ window.facultyApplyPreset = async (presetId, studentId) => {
   }
 };
 
-// --- TEMP STATE FOR PRESET EDITOR ---
 window.addPresetSubjectTemp = async (presetId) => {
   const input = document.getElementById('presetCodeInput');
   const code = input.value.trim().toUpperCase();
@@ -253,7 +248,6 @@ window.addPresetSubjectTemp = async (presetId) => {
   
   if (!code) return;
   
-  // Search the courses table for this code
   const courses = await supa('courses');
   const course = courses.find(c => c.code.toUpperCase() === code);
   
@@ -264,18 +258,15 @@ window.addPresetSubjectTemp = async (presetId) => {
   }
   errDiv.style.display = 'none';
   
-  // Check if already in temp list
   if (window.tempPresetSubjects.some(s => String(s.id) === String(course.id))) {
     errDiv.textContent = "Subject is already in the preset.";
     errDiv.style.display = 'block';
     return;
   }
 
-  // Add to temp list
   window.tempPresetSubjects.push({ ...course, psId: 'NEW' });
   input.value = '';
   
-  // Re-render list
   const listContainer = document.getElementById('presetSubjectListContainer');
   if (listContainer) {
     listContainer.innerHTML = window.tempPresetSubjects.map(c => `
@@ -370,7 +361,7 @@ document.addEventListener('click', async (e) => {
   // FACULTY ACTIONS
   if (action === 'facultyManageStudent') {
     window.facultySelectedStudent = Number(btn.dataset.id);
-    window.tempStudentSubjects = []; // Clear temp on open
+    window.tempStudentSubjects = []; 
     renderAll();
     return;
   }
@@ -393,6 +384,53 @@ document.addEventListener('click', async (e) => {
 
   if (action === 'facultyEditPreset') {
     await facultyEditPresetModal(Number(btn.dataset.id));
+    return;
+  }
+
+  if (action === 'facultySavePreset') {
+    const id = document.getElementById('preset_edit_id').value;
+    const name = document.getElementById('preset_name').value;
+    const prog = document.getElementById('preset_prog').value;
+    const year = document.getElementById('preset_year').value;
+    const sem = document.getElementById('preset_sem').value;
+
+    if (!name) return toast('Preset name is required.', 'error');
+
+    const payload = {
+      name: name,
+      program_id: Number(prog),
+      year_level: Number(year),
+      semester: sem
+    };
+
+    try {
+      let presetId = id;
+      if (id) {
+        await supa('presets', { method: 'PATCH', match: { id: Number(id) }, body: payload });
+      } else {
+        const res = await supa('presets', { method: 'POST', body: payload });
+        presetId = res[0].id;
+      }
+
+      for (const delId of window.tempDeletedPSIds) {
+        await supa('preset_subjects', { method: 'DELETE', match: { id: delId } });
+      }
+      window.tempDeletedPSIds = [];
+
+      const existingSubs = await supa('preset_subjects', { match: { preset_id: presetId } });
+      for (const sub of window.tempPresetSubjects) {
+        if (sub.psId === 'NEW' && !existingSubs.some(es => String(es.course_id) === String(sub.id))) {
+          await supa('preset_subjects', { method: 'POST', body: { preset_id: presetId, course_id: sub.id } });
+        }
+      }
+
+      toast('Preset saved successfully.');
+      document.getElementById('facultyPresetModal')?.remove();
+      renderAll();
+    } catch (err) {
+      console.error(err);
+      toast('Failed to save preset.', 'error');
+    }
     return;
   }
 
@@ -494,50 +532,6 @@ document.addEventListener('submit', async (e) => {
     const q = document.getElementById('facultySearchInput').value;
     window.facultySearch = q;
     renderAll();
-    return;
-  }
-
-  // Save Preset Info & Subjects
-  if (e.target.id === 'facultyPresetForm') {
-    const fd = new FormData(e.target);
-    const id = fd.get('id');
-    const payload = {
-      name: fd.get('name'),
-      program_id: Number(fd.get('program_id')),
-      year_level: Number(fd.get('year_level')),
-      semester: fd.get('semester')
-    };
-
-    try {
-      let presetId = id;
-      if (id) {
-        await supa('presets', { method: 'PATCH', match: { id: Number(id) }, body: payload });
-      } else {
-        const res = await supa('presets', { method: 'POST', body: payload });
-        presetId = res[0].id;
-      }
-
-      // Handle Deletions
-      for (const delId of window.tempDeletedPSIds) {
-        await supa('preset_subjects', { method: 'DELETE', match: { id: delId } });
-      }
-      window.tempDeletedPSIds = [];
-
-      // Handle Additions
-      const existingSubs = await supa('preset_subjects', { match: { preset_id: presetId } });
-      for (const sub of window.tempPresetSubjects) {
-        if (sub.psId === 'NEW' && !existingSubs.some(es => String(es.course_id) === String(sub.id))) {
-          await supa('preset_subjects', { method: 'POST', body: { preset_id: presetId, course_id: sub.id } });
-        }
-      }
-
-      toast('Preset saved successfully.');
-      document.getElementById('facultyPresetModal')?.remove();
-      renderAll();
-    } catch (err) {
-      console.error(err);
-      toast('Failed to save preset.', 'error');
-    }
     return;
   }
 });
