@@ -3,7 +3,7 @@ import { supa } from './api.js';
 import { session, loadSession, doLogin, doRegister, doLogout } from './auth.js';
 import { renderStudentDashboard, renderApply } from './student.js';
 import { renderAdminDashboard, renderAdminStudents, renderAdminCourses, renderAdminEnrollments, adminOpenStudentModal } from './admin.js';
-import { renderFacultyDashboard, renderFacultyProgress, renderFacultyCourses } from './faculty.js';
+import { renderFacultyDashboard, renderFacultyProgress, renderFacultyCourses, facultyManageStudentModal, facultyEditCourseModal } from './faculty.js';
 
 loadSession();
 
@@ -24,15 +24,8 @@ export async function renderAll() {
   pageWrap.classList.remove('hidden');
   navbar.classList.remove('hidden');
 
-  if (session.role === 'admin') {
-    renderAdminLayout();
-    return;
-  }
-  
-  if (session.role === 'faculty') {
-    renderFacultyLayout();
-    return;
-  }
+  if (session.role === 'admin') { renderAdminLayout(); return; }
+  if (session.role === 'faculty') { renderFacultyLayout(); return; }
 
   // STUDENT NAVBAR
   navbar.innerHTML = `
@@ -59,10 +52,7 @@ export async function renderAll() {
 function renderAuthPage() {
   $('#authPage').innerHTML = `
     <div class="auth-card">
-      <div class="auth-brand">
-        <h1>Unida Christian Colleges</h1>
-        <p>Enrollment Portal</p>
-      </div>
+      <div class="auth-brand"><h1>Unida Christian Colleges</h1><p>Enrollment Portal</p></div>
       <div class="auth-form">
         <div class="auth-tabs">
           <button class="auth-tab active" data-action="authTab" data-tab="login">Sign In</button>
@@ -156,6 +146,12 @@ async function renderFacultyLayout() {
 
 window.setFacultyView = (view) => { window.currentView = view; renderAll(); };
 
+// Global helper for search suggestions click
+window.setFacultySearch = (name) => {
+  window.facultySearch = name;
+  renderAll();
+};
+
 // GLOBAL CLICKS
 document.addEventListener('click', async (e) => {
   const navBtn = e.target.closest('[data-nav]');
@@ -214,13 +210,19 @@ document.addEventListener('click', async (e) => {
   }
 
   // FACULTY ACTIONS
+  if (action === 'facultyManageStudent') {
+    await facultyManageStudentModal(Number(btn.dataset.id));
+    return;
+  }
+
   if (action === 'facultyApproveSubject') {
     const subjectId = Number(btn.dataset.id);
     const studentId = Number(btn.dataset.student);
     try {
       await supa('student_subjects', { method: 'PATCH', match: { id: subjectId }, body: { status: 'Taken' } });
       toast('Payment approved. Subject marked as Taken.');
-      window.facultyStudent = studentId; renderAll();
+      document.getElementById('facultyStudentModal')?.remove();
+      await facultyManageStudentModal(studentId);
     } catch (err) { toast('Failed to approve.', 'error'); }
     return;
   }
@@ -231,8 +233,14 @@ document.addEventListener('click', async (e) => {
     try {
       await supa('student_subjects', { method: 'DELETE', match: { id: subjectId } });
       toast('Subject removed.');
-      window.facultyStudent = studentId; renderAll();
+      document.getElementById('facultyStudentModal')?.remove();
+      await facultyManageStudentModal(studentId);
     } catch (err) { toast('Failed to remove.', 'error'); }
+    return;
+  }
+
+  if (action === 'facultyEditCourse') {
+    await facultyEditCourseModal(Number(btn.dataset.id));
     return;
   }
 
@@ -276,27 +284,29 @@ document.addEventListener('click', async (e) => {
   }
 });
 
-// GLOBAL CHANGE LISTENERS (Filters, Dropdowns, Search)
+// GLOBAL CHANGE LISTENERS (Filters, Dropdowns)
 document.addEventListener('change', (e) => {
   const key = e.target.dataset.change;
   if (!key) return;
 
-  if (key === 'facultyStudent') {
-    window.facultyStudent = e.target.value;
-    renderAll();
-  } else if (key === 'facultyFilterYear') {
+  if (key === 'facultyFilterYear') {
     window.facultyFilterYear = e.target.value;
     renderAll();
   } else if (key === 'facultyFilterProg') {
     window.facultyFilterProg = e.target.value;
     renderAll();
+  } else if (key === 'facultyCourseFilterProg') {
+    window.facultyCourseFilterProg = e.target.value;
+    renderAll();
   }
 });
 
-// GLOBAL INPUT LISTENER (Live Search)
+// GLOBAL INPUT LISTENER (Live Search with Debounce)
 document.addEventListener('input', (e) => {
   if (e.target.dataset.change === 'facultySearch') {
     window.facultySearch = e.target.value;
+    
+    // Debounce: Wait 500ms after user stops typing to render the table
     clearTimeout(window.searchTimer);
     window.searchTimer = setTimeout(() => {
       const pos = e.target.selectionStart;
@@ -306,7 +316,7 @@ document.addEventListener('input', (e) => {
         nextInput.focus();
         nextInput.setSelectionRange(pos, pos);
       }
-    }, 300);
+    }, 500);
   }
 });
 
@@ -349,7 +359,8 @@ document.addEventListener('submit', async (e) => {
     try {
       await supa('student_subjects', { method: 'POST', body: { user_id: studentId, course_id: courseId, status } });
       toast('Subject added.');
-      window.facultyStudent = studentId; renderAll();
+      document.getElementById('facultyStudentModal')?.remove();
+      await facultyManageStudentModal(studentId);
     } catch (err) { toast('Failed to add subject.', 'error'); }
     return;
   }
@@ -361,7 +372,8 @@ document.addEventListener('submit', async (e) => {
       code: fd.get('code'),
       title: fd.get('title'),
       units: Number(fd.get('units')),
-      schedule: fd.get('schedule'),
+      schedule_day: fd.get('schedule_day'),
+      schedule_time: fd.get('schedule_time'),
       program_id: Number(fd.get('program_id'))
     };
 
@@ -372,6 +384,29 @@ document.addEventListener('submit', async (e) => {
       renderAll();
     } catch (err) {
       toast('Failed to create subject. Check if code already exists.', 'error');
+    }
+    return;
+  }
+
+  // Faculty Edit Subject (Course)
+  if (e.target.id === 'facultyEditCourseForm') {
+    const fd = new FormData(e.target);
+    const payload = {
+      code: fd.get('code'),
+      title: fd.get('title'),
+      units: Number(fd.get('units')),
+      schedule_day: fd.get('schedule_day'),
+      schedule_time: fd.get('schedule_time'),
+      program_id: Number(fd.get('program_id'))
+    };
+
+    try {
+      await supa('courses', { method: 'PATCH', match: { id: Number(fd.get('id')) }, body: payload });
+      toast('Subject updated successfully.');
+      document.getElementById('facultyEditCourseModal')?.remove();
+      renderAll();
+    } catch (err) {
+      toast('Failed to update subject.', 'error');
     }
     return;
   }
@@ -437,4 +472,5 @@ window.currentStep = 1;
 window.facultySearch = '';
 window.facultyFilterYear = '';
 window.facultyFilterProg = '';
+window.facultyCourseFilterProg = 'all';
 renderAll();
