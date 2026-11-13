@@ -432,4 +432,9 @@ window.deleteStudent = async (userId) => {
   }
 };
 
-window.currentView = '
+window.currentView = 'dashboard';
+window.currentStep = 1;
+window.facultySearch = '';
+window.facultyFilterYear = '';
+window.facultyFilterProg = '';
+renderAll();
