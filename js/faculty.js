@@ -1,7 +1,6 @@
 import { esc, toast } from './utils.js';
 import { supa } from './api.js';
 
-// Map IDs to Program Names
 const PROGRAMS = {
   '0': 'General',
   '1': 'BEEd',
@@ -43,24 +42,19 @@ export async function renderFacultyProgress() {
   const filterYear = window.facultyFilterYear || '';
   const filterProg = window.facultyFilterProg || '';
 
-  // Filter logic
   const filteredStudents = students.filter(u => {
     const app = apps.find(a => String(a.user_id) === String(u.id)) || {};
     let pr = app.program || {};
     if (typeof pr === 'string') { try { pr = JSON.parse(pr); } catch(e){} }
     
-    // Show only if they match the search AND the filters
     const nameMatch = searchQ ? (u.name.toLowerCase().includes(searchQ) || (u.student_id && u.student_id.toLowerCase().includes(searchQ))) : true;
     const yearMatch = filterYear ? String(pr.year_level) === String(filterYear) : true;
     const progMatch = filterProg ? String(pr.preferred) === String(filterProg) : true;
-    
-    // Only show students who have submitted their application
     const hasApp = !!app.submitted; 
 
     return hasApp && nameMatch && yearMatch && progMatch;
   });
 
-  // If a student is actively selected, show the management view instead of the list
   if (window.facultySelectedStudent) {
     const student = students.find(s => String(s.id) === String(window.facultySelectedStudent));
     if (student) {
@@ -145,7 +139,6 @@ export async function renderFacultyProgress() {
     }
   }
 
-  // Default View: Search + List
   return `
     <div class="rp-toolbar" style="gap: 10px; flex-wrap: wrap;">
       <div class="grow" style="min-width: 250px;">
@@ -209,19 +202,6 @@ export async function renderFacultyCourses() {
   const filteredCourses = courses.filter(c => filterProg === 'all' || String(c.program_id) === String(filterProg));
 
   return `
-    <div class="rp-toolbar" style="margin-bottom:20px;">
-      <div class="grow"></div>
-      <div style="width: 200px;">
-        <select class="rp-input" data-change="facultyCourseFilterProg">
-          <option value="all">All Programs</option>
-          <option value="0" ${filterProg === '0' ? 'selected' : ''}>General Subjects</option>
-          <option value="1" ${filterProg === '1' ? 'selected' : ''}>BEEd</option>
-          <option value="2" ${filterProg === '2' ? 'selected' : ''}>BSEd</option>
-          <option value="8" ${filterProg === '8' ? 'selected' : ''}>BSCS</option>
-        </select>
-      </div>
-    </div>
-
     <div class="rp-grid-2">
       <div class="rp-card">
         <div class="rp-card-head"><h3>➕ Create New Subject</h3></div>
@@ -262,15 +242,24 @@ export async function renderFacultyCourses() {
         </form>
       </div>
 
-      <div class="rp-card">
-        <div class="rp-card-head"><h3>📚 Subject List</h3></div>
-        <div class="rp-table-wrap" style="max-height: 500px; overflow-y: auto;">
+      <div class="rp-card" style="display:flex; flex-direction:column;">
+        <div class="rp-card-head" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:16px;">
+          <h3 style="margin:0;">📚 Subject List</h3>
+          <select class="rp-input" data-change="facultyCourseFilterProg" style="width:auto; min-width:160px; padding:6px 12px;">
+            <option value="all">All Programs</option>
+            <option value="0" ${filterProg === '0' ? 'selected' : ''}>General Subjects</option>
+            <option value="1" ${filterProg === '1' ? 'selected' : ''}>BEEd</option>
+            <option value="2" ${filterProg === '2' ? 'selected' : ''}>BSEd</option>
+            <option value="8" ${filterProg === '8' ? 'selected' : ''}>BSCS</option>
+          </select>
+        </div>
+        
+        <div class="rp-table-wrap" style="max-height: 500px; overflow-y: auto; flex:1;">
           <table class="rp-table">
             <thead><tr><th>Code</th><th>Title</th><th>Prog</th><th>Units</th><th>Schedule</th><th style="text-align:right">Action</th></tr></thead>
             <tbody>
               ${filteredCourses.length ? filteredCourses.map(c => {
                 const pName = PROGRAMS[c.program_id] || 'Unknown';
-                // Format time for display if it exists
                 const timeStr = c.schedule_time || '';
                 return `
                 <tr>
@@ -278,7 +267,7 @@ export async function renderFacultyCourses() {
                   <td>${esc(c.title)}</td>
                   <td><span class="rp-badge ${c.program_id === '0' ? 'gold' : 'green'}">${pName}</span></td>
                   <td>${c.units}</td>
-                  <td class="rp-hint">${esc((c.schedule_day || '') + ' ' + timeStr)}</td>
+                  <td class="rp-hint" style="white-space:nowrap;">${esc((c.schedule_day || '') + ' ' + timeStr)}</td>
                   <td style="text-align:right; white-space:nowrap;">
                     <button class="rp-btn rp-btn-primary rp-btn-sm" data-action="facultyEditCourse" data-id="${c.id}">Edit</button>
                     <button class="rp-btn rp-btn-danger rp-btn-sm" data-action="facultyDeleteCourse" data-id="${c.id}">✕</button>
@@ -297,7 +286,6 @@ export async function facultyEditCourseModal(courseId) {
   const courses = await supa('courses', { match: { id: courseId } });
   const c = courses[0];
   
-  // Try to split existing time into start and end if it exists (fallback to empty)
   let startTime = '';
   let endTime = '';
   if (c.schedule_time && c.schedule_time.includes('-')) {
@@ -311,7 +299,7 @@ export async function facultyEditCourseModal(courseId) {
       <div class="rp-modal">
         <div class="rp-modal-head">
           <h3>Edit Subject — ${esc(c.code)}</h3>
-          <button class="rp-btn rp-btn-ghost rp-btn-sm" onclick="document.getElementById('facultyEditCourseModal').remove()">✕</button>
+          <button type="button" class="rp-btn rp-btn-ghost rp-btn-sm" onclick="document.getElementById('facultyEditCourseModal').remove()">✕</button>
         </div>
         <div class="rp-modal-body">
           <form id="facultyEditCourseForm">
