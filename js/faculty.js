@@ -10,10 +10,6 @@ const PROGRAMS = {
 };
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-const TIMES = [
-  '07:30 - 08:30', '08:30 - 09:30', '09:30 - 10:30', '10:30 - 11:30',
-  '13:00 - 14:00', '14:00 - 15:00', '15:00 - 16:00', '16:00 - 17:00'
-];
 
 export async function renderFacultyDashboard() {
   const students = await supa('users', { match: { role: 'student' } });
@@ -58,37 +54,106 @@ export async function renderFacultyProgress() {
     const yearMatch = filterYear ? String(pr.year_level) === String(filterYear) : true;
     const progMatch = filterProg ? String(pr.preferred) === String(filterProg) : true;
     
-    // Only show students who have started an application (so they have a program)
+    // Only show students who have submitted their application
     const hasApp = !!app.submitted; 
 
     return hasApp && nameMatch && yearMatch && progMatch;
   });
 
-  // Build suggestions HTML (only if typing)
-  let suggestionsHtml = '';
-  if (searchQ.length > 0) {
-    const suggestions = students.filter(u => u.name.toLowerCase().includes(searchQ) || (u.student_id && u.student_id.toLowerCase().includes(searchQ))).slice(0, 5);
-    if (suggestions.length) {
-      suggestionsHtml = `
-        <div style="position:absolute; top:100%; left:0; right:0; background:#fff; border:1px solid var(--line); border-radius:0 0 10px 10px; box-shadow:var(--shadow); z-index:10;">
-          ${suggestions.map(s => `
-            <div style="padding:10px 14px; border-bottom:1px solid #eee; cursor:pointer;" 
-                 onclick="window.setFacultySearch('${esc(s.name)}')">
-              <strong>${esc(s.name)}</strong> <span class="rp-hint">(${esc(s.student_id || 'No ID')})</span>
+  // If a student is actively selected, show the management view instead of the list
+  if (window.facultySelectedStudent) {
+    const student = students.find(s => String(s.id) === String(window.facultySelectedStudent));
+    if (student) {
+      const app = apps.find(a => String(a.user_id) === String(student.id)) || {};
+      let pr = app.program || {};
+      if (typeof pr === 'string') { try { pr = JSON.parse(pr); } catch(e){} }
+      const progId = pr ? pr.preferred : null;
+      const progName = progId ? (PROGRAMS[progId] || 'Unknown') : 'No Program';
+      
+      const programCourses = courses.filter(c => String(c.program_id) === String(progId) || String(c.program_id) === '0');
+      const taken = subjects.filter(s => String(s.user_id) === String(student.id));
+      const takenIds = taken.map(t => String(t.course_id));
+      const availableToAdd = programCourses.filter(c => !takenIds.includes(String(c.id)));
+
+      return `
+        <div class="rp-toolbar" style="margin-bottom: 20px;">
+          <button class="rp-btn rp-btn-ghost" onclick="window.closeFacultyStudent()">← Back to List</button>
+        </div>
+
+        <div class="rp-card" style="margin-bottom: 20px; background:var(--mint-50);">
+          <div class="rp-card-head" style="margin-bottom:0">
+            <div>
+              <h3>${esc(student.name)} <span class="rp-hint">(${esc(student.student_id || 'No ID')})</span></h3>
+              <div class="rp-hint">${esc(student.email)} · ${progName} - Year ${esc(pr.year_level || '?')}</div>
             </div>
-          `).join('')}
+            <span class="rp-badge ${app.submitted ? 'green' : 'gold'}">${app.submitted ? 'Application Submitted' : 'In Progress'}</span>
+          </div>
+        </div>
+
+        <div class="rp-grid-2">
+          <div class="rp-card">
+            <div class="rp-card-head"><h3>📚 Current Subjects</h3></div>
+            ${taken.length ? taken.map(t => {
+              const c = courses.find(x => String(x.id) === String(t.course_id));
+              let badge = '';
+              if (t.status === 'Taken') badge = '<span class="rp-badge green">Taken</span>';
+              else if (t.status === 'Enrolled') badge = '<span class="rp-badge gold">Enrolled (Pending Payment)</span>';
+              else badge = `<span class="rp-badge grey">${esc(t.status)}</span>`;
+
+              return `
+                <div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid #eee; align-items: center;">
+                  <div>
+                    <div style="font-size:13.2px;font-weight:600">${esc(c ? c.code : '')} — ${esc(c ? c.title : '')}</div>
+                    <div class="rp-hint">${c ? c.units : 0} units · ${esc(c ? c.schedule_day + ' ' + c.schedule_time : '')}</div>
+                  </div>
+                  <div style="display:flex; gap: 8px; align-items: center;">
+                    ${badge}
+                    ${t.status === 'Enrolled' ? `
+                      <button class="rp-btn rp-btn-primary rp-btn-sm" data-action="facultyApproveSubject" data-id="${t.id}" data-student="${student.id}">Approve Payment</button>
+                    ` : ''}
+                    <button class="rp-btn rp-btn-danger rp-btn-sm" data-action="facultyRemoveSubject" data-id="${t.id}" data-student="${student.id}">✕</button>
+                  </div>
+                </div>
+              `;
+            }).join('') : '<div class="rp-empty">No subjects assigned yet.</div>'}
+          </div>
+
+          <div class="rp-card">
+            <div class="rp-card-head"><h3>➕ Add Subject</h3></div>
+            ${availableToAdd.length ? `
+              <form id="facultyAddSubjectForm" style="display:flex; gap:10px; flex-direction: column;">
+                <input type="hidden" name="student_id" value="${student.id}">
+                <select class="rp-input" name="course_id" required>
+                  <option value="">Select a course to add...</option>
+                  ${availableToAdd.map(c => `<option value="${c.id}">${esc(c.code)} — ${esc(c.title)} (${c.units} units)</option>`).join('')}
+                </select>
+                <select class="rp-input" name="status" required>
+                  <option value="Enrolled">Enrolled (Waiting for Payment)</option>
+                  <option value="Taken">Taken (Already Passed)</option>
+                </select>
+                <button type="submit" class="rp-btn rp-btn-primary" style="justify-content: center;">Add Subject</button>
+              </form>
+            ` : `
+              <div class="rp-empty">
+                <span class="big">✅</span>
+                No subjects available to add.
+              </div>
+            `}
+          </div>
         </div>
       `;
     }
   }
 
+  // Default View: Search + List
   return `
     <div class="rp-toolbar" style="gap: 10px; flex-wrap: wrap;">
-      <div class="grow" style="min-width: 200px; position: relative;">
-        <input class="rp-input" type="text" placeholder="Search name or student ID..." 
-               data-change="facultySearch" value="${esc(window.facultySearch || '')}"
-               autocomplete="off">
-        ${suggestionsHtml}
+      <div class="grow" style="min-width: 250px;">
+        <form id="facultySearchForm" style="display:flex; gap:8px;">
+          <input class="rp-input" type="text" id="facultySearchInput" placeholder="Search name or student ID, then press Enter..." 
+                 value="${esc(window.facultySearch || '')}">
+          <button type="submit" class="rp-btn rp-btn-primary">Search</button>
+        </form>
       </div>
       <div style="width: 150px;">
         <select class="rp-input" data-change="facultyFilterYear">
@@ -130,107 +195,11 @@ export async function renderFacultyProgress() {
                 </td>
               </tr>
             `;
-          }).join('') : '<tr><td colspan="5" class="rp-empty">No students found. Type in the search bar.</td></tr>'}
+          }).join('') : '<tr><td colspan="5" class="rp-empty">No students found.</td></tr>'}
         </tbody>
       </table>
     </div>
   `;
-}
-
-export async function facultyManageStudentModal(userId) {
-  const users = await supa('users', { match: { id: userId } });
-  const u = users[0];
-  const apps = await supa('applications', { match: { user_id: userId } });
-  const app = apps[0] || {};
-  const subjects = await supa('student_subjects', { match: { user_id: userId } });
-  const courses = await supa('courses');
-  
-  let pr = app.program || {};
-  if (typeof pr === 'string') { try { pr = JSON.parse(pr); } catch(e){} }
-  const progId = pr ? pr.preferred : null;
-  const progName = progId ? (PROGRAMS[progId] || 'Unknown') : 'No Program';
-
-  // Courses available for this program OR General (0)
-  const programCourses = courses.filter(c => String(c.program_id) === String(progId) || String(c.program_id) === '0');
-  const taken = subjects;
-  const takenIds = taken.map(t => String(t.course_id));
-  const availableToAdd = programCourses.filter(c => !takenIds.includes(String(c.id)));
-
-  const modalHtml = `
-    <div class="rp-modal-backdrop" id="facultyStudentModal">
-      <div class="rp-modal wide">
-        <div class="rp-modal-head">
-          <h3>Manage Student — ${esc(u.name)}</h3>
-          <button class="rp-btn rp-btn-ghost rp-btn-sm" onclick="document.getElementById('facultyStudentModal').remove()">✕</button>
-        </div>
-        <div class="rp-modal-body">
-          <div class="rp-card" style="margin-bottom: 20px; background:var(--mint-50);">
-            <div class="rp-card-head" style="margin-bottom:0">
-              <div>
-                <h3>${esc(u.name)} <span class="rp-hint">(${esc(u.student_id || 'No ID')})</span></h3>
-                <div class="rp-hint">${esc(u.email)} · ${progName} - Year ${esc(pr.year_level || '?')}</div>
-              </div>
-            </div>
-          </div>
-
-          <div class="rp-grid-2">
-            <div class="rp-card">
-              <div class="rp-card-head"><h3>📚 Current Subjects</h3></div>
-              ${taken.length ? taken.map(t => {
-                const c = courses.find(x => String(x.id) === String(t.course_id));
-                let badge = '';
-                if (t.status === 'Taken') badge = '<span class="rp-badge green">Taken</span>';
-                else if (t.status === 'Enrolled') badge = '<span class="rp-badge gold">Enrolled (Pending Payment)</span>';
-                else badge = `<span class="rp-badge grey">${esc(t.status)}</span>`;
-
-                return `
-                  <div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid #eee; align-items: center;">
-                    <div>
-                      <div style="font-size:13.2px;font-weight:600">${esc(c ? c.code : '')} — ${esc(c ? c.title : '')}</div>
-                      <div class="rp-hint">${c ? c.units : 0} units · ${esc(c ? c.schedule_day + ' ' + c.schedule_time : '')}</div>
-                    </div>
-                    <div style="display:flex; gap: 8px; align-items: center;">
-                      ${badge}
-                      ${t.status === 'Enrolled' ? `
-                        <button class="rp-btn rp-btn-primary rp-btn-sm" data-action="facultyApproveSubject" data-id="${t.id}" data-student="${student.id}">Approve Payment</button>
-                      ` : ''}
-                      <button class="rp-btn rp-btn-danger rp-btn-sm" data-action="facultyRemoveSubject" data-id="${t.id}" data-student="${student.id}">✕</button>
-                    </div>
-                  </div>
-                `;
-              }).join('') : '<div class="rp-empty">No subjects assigned yet.</div>'}
-            </div>
-
-            <div class="rp-card">
-              <div class="rp-card-head"><h3>➕ Add Subject</h3></div>
-              ${availableToAdd.length ? `
-                <form id="facultyAddSubjectForm" style="display:flex; gap:10px; flex-direction: column;">
-                  <input type="hidden" name="student_id" value="${u.id}">
-                  <select class="rp-input" name="course_id" required>
-                    <option value="">Select a course to add...</option>
-                    ${availableToAdd.map(c => `<option value="${c.id}">${esc(c.code)} — ${esc(c.title)} (${PROGRAMS[c.program_id]})</option>`).join('')}
-                  </select>
-                  <select class="rp-input" name="status" required>
-                    <option value="Enrolled">Enrolled (Waiting for Payment)</option>
-                    <option value="Taken">Taken (Already Passed)</option>
-                  </select>
-                  <button type="submit" class="rp-btn rp-btn-primary" style="justify-content: center;">Add Subject</button>
-                </form>
-              ` : `
-                <div class="rp-empty">
-                  <span class="big">✅</span>
-                  No subjects available to add.
-                </div>
-              `}
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  `;
-
-  document.getElementById('facultyStudentModal')?.remove();
-  document.body.insertAdjacentHTML('beforeend', modalHtml);
 }
 
 export async function renderFacultyCourses() {
@@ -269,11 +238,15 @@ export async function renderFacultyCourses() {
                 ${DAYS.map(d => `<option value="${d}">${d}</option>`).join('')}
               </select>
             </div>
-            <div class="field">
-              <label>Time</label>
-              <select class="rp-input" name="schedule_time" required>
-                ${TIMES.map(t => `<option value="${t}">${t}</option>`).join('')}
-              </select>
+            <div class="field-row" style="grid-template-columns: 1fr 1fr; gap: 8px;">
+              <div class="field">
+                <label>Start Time</label>
+                <input type="time" class="rp-input" name="schedule_time_start" required>
+              </div>
+              <div class="field">
+                <label>End Time</label>
+                <input type="time" class="rp-input" name="schedule_time_end" required>
+              </div>
             </div>
           </div>
           <div class="field">
@@ -297,13 +270,15 @@ export async function renderFacultyCourses() {
             <tbody>
               ${filteredCourses.length ? filteredCourses.map(c => {
                 const pName = PROGRAMS[c.program_id] || 'Unknown';
+                // Format time for display if it exists
+                const timeStr = c.schedule_time || '';
                 return `
                 <tr>
                   <td><strong>${esc(c.code)}</strong></td>
                   <td>${esc(c.title)}</td>
                   <td><span class="rp-badge ${c.program_id === '0' ? 'gold' : 'green'}">${pName}</span></td>
                   <td>${c.units}</td>
-                  <td class="rp-hint">${esc((c.schedule_day || '') + ' ' + (c.schedule_time || ''))}</td>
+                  <td class="rp-hint">${esc((c.schedule_day || '') + ' ' + timeStr)}</td>
                   <td style="text-align:right; white-space:nowrap;">
                     <button class="rp-btn rp-btn-primary rp-btn-sm" data-action="facultyEditCourse" data-id="${c.id}">Edit</button>
                     <button class="rp-btn rp-btn-danger rp-btn-sm" data-action="facultyDeleteCourse" data-id="${c.id}">✕</button>
@@ -321,6 +296,15 @@ export async function renderFacultyCourses() {
 export async function facultyEditCourseModal(courseId) {
   const courses = await supa('courses', { match: { id: courseId } });
   const c = courses[0];
+  
+  // Try to split existing time into start and end if it exists (fallback to empty)
+  let startTime = '';
+  let endTime = '';
+  if (c.schedule_time && c.schedule_time.includes('-')) {
+    const parts = c.schedule_time.split('-');
+    startTime = parts[0].trim();
+    endTime = parts[1].trim();
+  }
 
   const modalHtml = `
     <div class="rp-modal-backdrop" id="facultyEditCourseModal">
@@ -344,11 +328,15 @@ export async function facultyEditCourseModal(courseId) {
                   ${DAYS.map(d => `<option value="${d}" ${c.schedule_day === d ? 'selected' : ''}>${d}</option>`).join('')}
                 </select>
               </div>
-              <div class="field">
-                <label>Time</label>
-                <select class="rp-input" name="schedule_time" required>
-                  ${TIMES.map(t => `<option value="${t}" ${c.schedule_time === t ? 'selected' : ''}>${t}</option>`).join('')}
-                </select>
+              <div class="field-row" style="grid-template-columns: 1fr 1fr; gap: 8px;">
+                <div class="field">
+                  <label>Start Time</label>
+                  <input type="time" class="rp-input" name="schedule_time_start" value="${startTime}" required>
+                </div>
+                <div class="field">
+                  <label>End Time</label>
+                  <input type="time" class="rp-input" name="schedule_time_end" value="${endTime}" required>
+                </div>
               </div>
             </div>
             <div class="field">
