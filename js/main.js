@@ -167,7 +167,6 @@ window.tempAddSubject = (studentId) => {
   if (!sel.value) return toast('Select a subject first', 'error');
   const courseId = Number(sel.value);
   
-  // Prevent adding if already in temp
   if (window.tempStudentSubjects.some(s => String(s.courseId) === String(courseId))) {
     return toast('Subject is already in the list.', 'error');
   }
@@ -229,20 +228,18 @@ window.confirmStudentSubjects = async (studentId) => {
   }
 };
 
-// Loads the preset's subjects into the temporary array instead of the database
 window.facultyLoadPresetToTemp = async (presetId) => {
   try {
     const presetSubs = await supa('preset_subjects', { match: { preset_id: presetId } });
     const courses = await supa('courses');
-    
+    const currentTaken = await supa('student_subjects', { match: { user_id: window.facultySelectedStudent } });
+
     let addedCount = 0;
     for (const ps of presetSubs) {
-      // Check if already confirmed or already in temp list
       const courseId = ps.course_id;
       
-      const isConfirmed = document.getElementById('tempSubjectList')?.innerHTML.includes(`data-id="${courseId}"`) || 
-                          document.querySelector('.rp-card .rp-badge.green') !== null; // fallback check
-                          
+      // Skip if already confirmed or already in temp
+      if (currentTaken.some(t => String(t.course_id) === String(courseId))) continue;
       if (window.tempStudentSubjects.some(s => String(s.courseId) === String(courseId))) continue;
 
       const c = courses.find(x => String(x.id) === String(courseId));
@@ -258,11 +255,10 @@ window.facultyLoadPresetToTemp = async (presetId) => {
     }
     
     if (addedCount > 0) {
-      toast(`Added ${addedCount} subjects from preset.`);
-      // Re-render the specific student modal view
-      renderAll(); 
+      toast(`Added ${addedCount} subjects to the pending list.`);
+      renderAll(); // Force re-render so the UI updates
     } else {
-      toast('All subjects in this preset are already in the list.', 'warn');
+      toast('All subjects in this preset are already in the list or confirmed.', 'warn');
     }
   } catch (err) {
     console.error(err);
@@ -386,7 +382,6 @@ document.addEventListener('click', async (e) => {
     window.currentView = 'dashboard'; renderAll(); return;
   }
 
-  // FACULTY ACTIONS
   if (action === 'facultyManageStudent') {
     window.facultySelectedStudent = Number(btn.dataset.id);
     window.tempStudentSubjects = []; 
@@ -404,7 +399,6 @@ document.addEventListener('click', async (e) => {
     return;
   }
 
-  // PRESETS ACTIONS
   if (action === 'facultyCreatePreset') {
     await facultyEditPresetModal(null);
     return;
@@ -526,7 +520,6 @@ document.addEventListener('click', async (e) => {
     return;
   }
 
-  // ADMIN ACTIONS
   if (action === 'adminOpenStudent') {
     await adminOpenStudentModal(Number(btn.dataset.id)); return;
   }
