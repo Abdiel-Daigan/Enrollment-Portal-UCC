@@ -70,7 +70,6 @@ export async function renderFacultyProgress() {
       const programCourses = courses.filter(c => String(c.program_id) === String(progId) || String(c.program_id) === '0');
       const taken = subjects.filter(s => String(s.user_id) === String(student.id));
       
-      // Filter out confirmed subjects AND those currently in the temporary pre-confirmed list
       const confirmedIds = taken.map(t => String(t.course_id));
       const tempIds = window.tempStudentSubjects.map(t => String(t.courseId));
       
@@ -102,25 +101,31 @@ export async function renderFacultyProgress() {
         </div>
 
         <div class="rp-grid-2">
-          <div class="rp-card">
-            <div class="rp-card-head"><h3>📚 Confirmed Subjects</h3></div>
-            ${taken.length ? taken.map(t => {
-              const c = courses.find(x => String(x.id) === String(t.course_id));
-              return `
-                <div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid #eee; align-items: center;">
+          <!-- LEFT SIDE: Pre-Confirmed List -->
+          <div class="rp-card" style="display:flex; flex-direction:column;">
+            <div class="rp-card-head">
+              <h3>📝 Pre-Confirmed List</h3>
+              <span class="rp-hint">${window.tempStudentSubjects.length} subject(s)</span>
+            </div>
+            
+            <div id="tempSubjectList" style="flex:1;">
+              ${window.tempStudentSubjects.length ? window.tempStudentSubjects.map((s, idx) => `
+                <div style="display:flex; justify-content:space-between; align-items:center; padding:10px 0; border-bottom:1px solid #eee;">
                   <div>
-                    <div style="font-size:13.2px;font-weight:600">${esc(c ? c.code : '')} — ${esc(c ? c.title : '')}</div>
-                    <div class="rp-hint">${c ? c.units : 0} units</div>
+                    <div style="font-size:13.5px; font-weight:600;">${esc(s.code)} — ${esc(s.title)}</div>
+                    <div class="rp-hint">${s.units} units</div>
                   </div>
-                  <div style="display:flex; gap: 8px; align-items: center;">
-                    <span class="rp-badge green">Enrolled</span>
-                    <button class="rp-btn rp-btn-danger rp-btn-sm" data-action="facultyRemoveSubject" data-id="${t.id}" data-student="${student.id}">✕</button>
-                  </div>
+                  <button type="button" class="rp-btn rp-btn-danger rp-btn-sm" onclick="window.removeTempSubject(${idx})">✕</button>
                 </div>
-              `;
-            }).join('') : '<div class="rp-empty">No subjects confirmed yet.</div>'}
+              `).join('') : '<div class="rp-empty" style="padding:20px 0;">No subjects pre-confirmed yet.</div>'}
+            </div>
+
+            <button type="button" class="rp-btn rp-btn-primary" style="margin-top: 16px; width: 100%; display: ${window.tempStudentSubjects.length ? 'block' : 'none'};" id="btnConfirmSubjects" onclick="window.confirmStudentSubjects('${student.id}')">
+              Confirm Subjects
+            </button>
           </div>
 
+          <!-- RIGHT SIDE: Add Subjects -->
           <div class="rp-card">
             <div class="rp-card-head"><h3>➕ Add Subjects</h3></div>
             
@@ -135,7 +140,7 @@ export async function renderFacultyProgress() {
                         <div style="font-weight:600; font-size:13.5px;">${esc(mp.name)}</div>
                         <div class="rp-hint">${subCount} subjects</div>
                       </div>
-                      <button type="button" class="rp-btn rp-btn-primary rp-btn-sm" data-action="facultyLoadPresetToTemp" data-preset="${mp.id}">Add Preset to List</button>
+                      <button type="button" class="rp-btn rp-btn-primary rp-btn-sm" data-action="facultyLoadPresetToTemp" data-preset="${mp.id}">Add to List</button>
                     </div>
                   `;
                 }).join('')}
@@ -150,23 +155,30 @@ export async function renderFacultyProgress() {
               </select>
               <button type="button" class="rp-btn rp-btn-ghost" style="justify-content: center; border: 1px dashed var(--mint-500);" onclick="window.tempAddSubject('${student.id}')">Add to List</button>
             </form>
-
-            <div id="tempSubjectList" style="margin-top: 16px; border-top: 1px solid #eee; padding-top: 16px;">
-              ${window.tempStudentSubjects.map((s, idx) => `
-                <div style="display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid #eee;">
-                  <div>
-                    <div style="font-size:13px; font-weight:600;">${esc(s.code)} — ${esc(s.title)}</div>
-                    <div class="rp-hint">${s.units} units</div>
-                  </div>
-                  <button type="button" class="rp-btn rp-btn-danger rp-btn-sm" onclick="window.removeTempSubject(${idx})">✕</button>
-                </div>
-              `).join('')}
-            </div>
-
-            <button type="button" class="rp-btn rp-btn-primary" style="margin-top: 16px; width: 100%; display: ${window.tempStudentSubjects.length ? 'block' : 'none'};" id="btnConfirmSubjects" onclick="window.confirmStudentSubjects('${student.id}')">
-              Confirm Subjects
-            </button>
           </div>
+        </div>
+
+        <!-- BOTTOM FULL WIDTH: Subjects to be added -->
+        <div class="rp-card" style="margin-top: 20px;">
+          <div class="rp-card-head">
+            <h3>📚 Subjects to be added:</h3>
+            <span class="rp-badge green">${taken.length} subject(s)</span>
+          </div>
+          ${taken.length ? taken.map(t => {
+            const c = courses.find(x => String(x.id) === String(t.course_id));
+            return `
+              <div style="display:flex;justify-content:space-between;padding:12px 0;border-bottom:1px solid #eee; align-items: center;">
+                <div>
+                  <div style="font-size:13.5px;font-weight:600">${esc(c ? c.code : '')} — ${esc(c ? c.title : '')}</div>
+                  <div class="rp-hint">${c ? c.units : 0} units · ${c ? c.schedule_day + ' ' + c.schedule_time : ''}</div>
+                </div>
+                <div style="display:flex; gap: 8px; align-items: center;">
+                  <span class="rp-badge green">Pending Payment</span>
+                  <button class="rp-btn rp-btn-danger rp-btn-sm" data-action="facultyRemoveSubject" data-id="${t.id}" data-student="${student.id}">✕</button>
+                </div>
+              </div>
+            `;
+          }).join('') : '<div class="rp-empty">No subjects added to the student yet.</div>'}
         </div>
       `;
     }
