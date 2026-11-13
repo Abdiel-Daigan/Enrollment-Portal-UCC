@@ -146,14 +146,8 @@ async function renderFacultyLayout() {
 
 window.setFacultyView = (view) => { 
   window.currentView = view; 
-  window.facultySelectedStudent = null; // Reset selected student when switching tabs
+  window.facultySelectedStudent = null; 
   renderAll(); 
-};
-
-// Global helper to open and close student management view
-window.openFacultyStudent = (id) => {
-  window.facultySelectedStudent = id;
-  renderAll();
 };
 
 window.closeFacultyStudent = () => {
@@ -363,7 +357,6 @@ document.addEventListener('submit', async (e) => {
   if (e.target.id === 'facultyCreateCourseForm') {
     const fd = new FormData(e.target);
     
-    // Combine start and end time into one string for display
     const start = fd.get('schedule_time_start');
     const end = fd.get('schedule_time_end');
     const timeStr = `${start} - ${end}`;
@@ -391,6 +384,7 @@ document.addEventListener('submit', async (e) => {
   // Faculty Edit Subject (Course)
   if (e.target.id === 'facultyEditCourseForm') {
     const fd = new FormData(e.target);
+    const id = fd.get('id');
     
     const start = fd.get('schedule_time_start');
     const end = fd.get('schedule_time_end');
@@ -406,11 +400,12 @@ document.addEventListener('submit', async (e) => {
     };
 
     try {
-      await supa('courses', { method: 'PATCH', match: { id: Number(fd.get('id')) }, body: payload });
+      await supa('courses', { method: 'PATCH', match: { id: Number(id) }, body: payload });
       toast('Subject updated successfully.');
       document.getElementById('facultyEditCourseModal')?.remove();
       renderAll();
     } catch (err) {
+      console.error(err);
       toast('Failed to update subject.', 'error');
     }
     return;
