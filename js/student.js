@@ -363,7 +363,7 @@ export async function renderPaymentTab(app, subjects, courses) {
   `;
 }
 
-// --- REDESIGNED SCHEDULE TAB (GRAPH/TIMETABLE) ---
+// --- REDESIGNED SCHEDULE TAB ---
 export async function renderScheduleTab(app, subjects, courses) {
   let pr = app.program || {};
   if (typeof pr === 'string') { try { pr = JSON.parse(pr); } catch(e){} }
@@ -398,16 +398,17 @@ export async function renderScheduleTab(app, subjects, courses) {
 
   const startHour = Math.max(0, Math.floor(minTime / 60) - 1);
   const endHour = Math.min(24, Math.ceil(maxTime / 60) + 1);
-  
   const slotsCount = (endHour - startHour) * 2;
 
   let tableHtml = `<div class="timetable">`;
   
+  // Headers
   tableHtml += `<div class="tt-header" style="grid-row:1; grid-column:1;">Time</div>`;
   days.forEach((d, i) => {
     tableHtml += `<div class="tt-header" style="grid-row:1; grid-column:${i+2};">${d.slice(0,3)}</div>`;
   });
 
+  // Rows and Empty Cells (This draws the grid lines)
   for (let i = 0; i < slotsCount; i++) {
     const row = i + 2; 
     const hour = startHour + Math.floor(i / 2);
@@ -420,9 +421,16 @@ export async function renderScheduleTab(app, subjects, courses) {
       timeLabel = `${displayHour} ${ampm}`;
     }
     
+    // Time Column
     tableHtml += `<div class="tt-time" style="grid-row:${row}; grid-column:1;">${timeLabel}</div>`;
+    
+    // Empty Day Columns (Creates the graph background)
+    days.forEach((_, j) => {
+      tableHtml += `<div class="tt-cell" style="grid-row:${row}; grid-column:${j+2};"></div>`;
+    });
   }
 
+  // Class Blocks
   blocks.forEach(b => {
     const startRow = 2 + Math.floor((b.startMin - startHour * 60) / 30);
     const endRow = 2 + Math.ceil((b.endMin - startHour * 60) / 30);
@@ -443,18 +451,28 @@ export async function renderScheduleTab(app, subjects, courses) {
   tableHtml += `</div>`;
 
   return `
-    <div class="progress-card" style="margin-bottom:20px;">
-      <div class="rp-card-head" style="margin-bottom:10px;">
-        <h3>Class Schedule</h3>
-      </div>
-      <div style="display:flex; gap:10px; flex-wrap:wrap;">
-        <span class="rp-badge green" style="padding:8px 14px; font-size:13px;">🎓 ${progName} - Year ${esc(pr.year_level || '?')}</span>
-        <span class="rp-badge gold" style="padding:8px 14px; font-size:13px;">📅 ${esc(pr.semester || '1st Semester')}</span>
+    <div class="schedule-header-card">
+      <h2>My Timetable</h2>
+      <div class="schedule-info-grid">
+        <div class="schedule-info-item">
+          <span>Program</span>
+          <strong>${progName}</strong>
+        </div>
+        <div class="schedule-info-item">
+          <span>Year Level</span>
+          <strong>Year ${esc(pr.year_level || '?')}</strong>
+        </div>
+        <div class="schedule-info-item">
+          <span>Semester</span>
+          <strong>${esc(pr.semester || '1st Semester')}</strong>
+        </div>
       </div>
     </div>
 
-    <div style="overflow-x: auto; padding-bottom: 20px;">
-      ${tableHtml}
+    <div class="rp-card" style="padding: 0; overflow: hidden; border: none; background: transparent;">
+      <div style="overflow-x: auto;">
+        ${tableHtml}
+      </div>
     </div>
   `;
 }
