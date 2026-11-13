@@ -3,7 +3,7 @@ import { supa } from './api.js';
 import { session, loadSession, doLogin, doRegister, doLogout } from './auth.js';
 import { renderStudentDashboard, renderApply } from './student.js';
 import { renderAdminDashboard, renderAdminStudents, renderAdminCourses, renderAdminEnrollments, adminOpenStudentModal } from './admin.js';
-import { renderFacultyDashboard, renderFacultyProgress, renderFacultyCourses, facultyManageStudentModal, facultyEditCourseModal } from './faculty.js';
+import { renderFacultyDashboard, renderFacultyProgress, renderFacultyCourses, facultyEditCourseModal } from './faculty.js';
 
 loadSession();
 
@@ -144,11 +144,20 @@ async function renderFacultyLayout() {
   else if (view === 'courses') content.innerHTML = await renderFacultyCourses();
 }
 
-window.setFacultyView = (view) => { window.currentView = view; renderAll(); };
+window.setFacultyView = (view) => { 
+  window.currentView = view; 
+  window.facultySelectedStudent = null; // Reset selected student when switching tabs
+  renderAll(); 
+};
 
-// Global helper for search suggestions click
-window.setFacultySearch = (name) => {
-  window.facultySearch = name;
+// Global helper to open and close student management view
+window.openFacultyStudent = (id) => {
+  window.facultySelectedStudent = id;
+  renderAll();
+};
+
+window.closeFacultyStudent = () => {
+  window.facultySelectedStudent = null;
   renderAll();
 };
 
@@ -211,30 +220,27 @@ document.addEventListener('click', async (e) => {
 
   // FACULTY ACTIONS
   if (action === 'facultyManageStudent') {
-    await facultyManageStudentModal(Number(btn.dataset.id));
+    window.facultySelectedStudent = Number(btn.dataset.id);
+    renderAll();
     return;
   }
 
   if (action === 'facultyApproveSubject') {
     const subjectId = Number(btn.dataset.id);
-    const studentId = Number(btn.dataset.student);
     try {
       await supa('student_subjects', { method: 'PATCH', match: { id: subjectId }, body: { status: 'Taken' } });
       toast('Payment approved. Subject marked as Taken.');
-      document.getElementById('facultyStudentModal')?.remove();
-      await facultyManageStudentModal(studentId);
+      renderAll();
     } catch (err) { toast('Failed to approve.', 'error'); }
     return;
   }
 
   if (action === 'facultyRemoveSubject') {
     const subjectId = Number(btn.dataset.id);
-    const studentId = Number(btn.dataset.student);
     try {
       await supa('student_subjects', { method: 'DELETE', match: { id: subjectId } });
       toast('Subject removed.');
-      document.getElementById('facultyStudentModal')?.remove();
-      await facultyManageStudentModal(studentId);
+      renderAll();
     } catch (err) { toast('Failed to remove.', 'error'); }
     return;
   }
@@ -301,25 +307,6 @@ document.addEventListener('change', (e) => {
   }
 });
 
-// GLOBAL INPUT LISTENER (Live Search with Debounce)
-document.addEventListener('input', (e) => {
-  if (e.target.dataset.change === 'facultySearch') {
-    window.facultySearch = e.target.value;
-    
-    // Debounce: Wait 500ms after user stops typing to render the table
-    clearTimeout(window.searchTimer);
-    window.searchTimer = setTimeout(() => {
-      const pos = e.target.selectionStart;
-      renderAll();
-      const nextInput = document.querySelector('[data-change="facultySearch"]');
-      if (nextInput) {
-        nextInput.focus();
-        nextInput.setSelectionRange(pos, pos);
-      }
-    }, 500);
-  }
-});
-
 // GLOBAL FORMS
 document.addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -349,6 +336,14 @@ document.addEventListener('submit', async (e) => {
     return;
   }
 
+  // Faculty Search Form
+  if (e.target.id === 'facultySearchForm') {
+    const q = document.getElementById('facultySearchInput').value;
+    window.facultySearch = q;
+    renderAll();
+    return;
+  }
+
   // Faculty Add Subject to Student
   if (e.target.id === 'facultyAddSubjectForm') {
     const fd = new FormData(e.target);
@@ -359,8 +354,7 @@ document.addEventListener('submit', async (e) => {
     try {
       await supa('student_subjects', { method: 'POST', body: { user_id: studentId, course_id: courseId, status } });
       toast('Subject added.');
-      document.getElementById('facultyStudentModal')?.remove();
-      await facultyManageStudentModal(studentId);
+      renderAll();
     } catch (err) { toast('Failed to add subject.', 'error'); }
     return;
   }
@@ -368,12 +362,18 @@ document.addEventListener('submit', async (e) => {
   // Faculty Create Subject (Course)
   if (e.target.id === 'facultyCreateCourseForm') {
     const fd = new FormData(e.target);
+    
+    // Combine start and end time into one string for display
+    const start = fd.get('schedule_time_start');
+    const end = fd.get('schedule_time_end');
+    const timeStr = `${start} - ${end}`;
+
     const payload = {
       code: fd.get('code'),
       title: fd.get('title'),
       units: Number(fd.get('units')),
       schedule_day: fd.get('schedule_day'),
-      schedule_time: fd.get('schedule_time'),
+      schedule_time: timeStr,
       program_id: Number(fd.get('program_id'))
     };
 
@@ -391,12 +391,17 @@ document.addEventListener('submit', async (e) => {
   // Faculty Edit Subject (Course)
   if (e.target.id === 'facultyEditCourseForm') {
     const fd = new FormData(e.target);
+    
+    const start = fd.get('schedule_time_start');
+    const end = fd.get('schedule_time_end');
+    const timeStr = `${start} - ${end}`;
+
     const payload = {
       code: fd.get('code'),
       title: fd.get('title'),
       units: Number(fd.get('units')),
       schedule_day: fd.get('schedule_day'),
-      schedule_time: fd.get('schedule_time'),
+      schedule_time: timeStr,
       program_id: Number(fd.get('program_id'))
     };
 
@@ -473,4 +478,5 @@ window.facultySearch = '';
 window.facultyFilterYear = '';
 window.facultyFilterProg = '';
 window.facultyCourseFilterProg = 'all';
+window.facultySelectedStudent = null;
 renderAll();
