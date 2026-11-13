@@ -178,39 +178,12 @@ window.tempAddSubject = (studentId) => {
   const units = text.match(/\((\d+)\s*units\)/)[1];
 
   window.tempStudentSubjects.push({ courseId, code, title, units });
-  
-  const listDiv = document.getElementById('tempSubjectList');
-  if (listDiv) {
-    listDiv.innerHTML = window.tempStudentSubjects.map((s, idx) => `
-      <div style="display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid #eee;">
-        <div>
-          <div style="font-size:13px; font-weight:600;">${esc(s.code)} — ${esc(s.title)}</div>
-          <div class="rp-hint">${s.units} units</div>
-        </div>
-        <button type="button" class="rp-btn rp-btn-danger rp-btn-sm" onclick="window.removeTempSubject(${idx})">✕</button>
-      </div>
-    `).join('');
-    document.getElementById('btnConfirmSubjects').style.display = 'block';
-  }
+  renderAll(); // Re-render immediately to update dropdown & list
 };
 
 window.removeTempSubject = (idx) => {
   window.tempStudentSubjects.splice(idx, 1);
-  const listDiv = document.getElementById('tempSubjectList');
-  if (listDiv) {
-    listDiv.innerHTML = window.tempStudentSubjects.map((s, i) => `
-      <div style="display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid #eee;">
-        <div>
-          <div style="font-size:13px; font-weight:600;">${esc(s.code)} — ${esc(s.title)}</div>
-          <div class="rp-hint">${s.units} units</div>
-        </div>
-        <button type="button" class="rp-btn rp-btn-danger rp-btn-sm" onclick="window.removeTempSubject(${i})">✕</button>
-      </div>
-    `).join('');
-    if (!window.tempStudentSubjects.length) {
-      document.getElementById('btnConfirmSubjects').style.display = 'none';
-    }
-  }
+  renderAll(); // Re-render to put subject back in dropdown
 };
 
 window.confirmStudentSubjects = async (studentId) => {
@@ -228,6 +201,7 @@ window.confirmStudentSubjects = async (studentId) => {
   }
 };
 
+// THIS IS THE FIX FOR THE PRESET BUTTON
 window.facultyLoadPresetToTemp = async (presetId) => {
   try {
     const presetSubs = await supa('preset_subjects', { match: { preset_id: presetId } });
@@ -256,10 +230,13 @@ window.facultyLoadPresetToTemp = async (presetId) => {
     
     if (addedCount > 0) {
       toast(`Added ${addedCount} subjects to the pending list.`);
-      renderAll(); // Force re-render so the UI updates
     } else {
-      toast('All subjects in this preset are already in the list or confirmed.', 'warn');
+      toast('No new subjects to add (already in list or confirmed).', 'warn');
     }
+    
+    // THIS forces the screen to redraw with the new temporary subjects
+    renderAll(); 
+    
   } catch (err) {
     console.error(err);
     toast('Failed to load preset.', 'error');
