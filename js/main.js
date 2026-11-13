@@ -733,4 +733,70 @@ document.addEventListener('submit', async (e) => {
 
   // ACCOUNTING FORMS
   if (e.target.id === 'accountingSettingsForm') {
-   
+    const fd = new FormData(e.target);
+    try {
+      await supa('system_settings', {
+        method: 'PATCH',
+        match: { id: 1 },
+        body: {
+          tuition_per_unit: Number(fd.get('tuition_per_unit')),
+          misc_fee: Number(fd.get('misc_fee')),
+          reg_fee: Number(fd.get('reg_fee'))
+        }
+      });
+      toast('Settings updated successfully.');
+    } catch (err) {
+      toast('Failed to update settings.', 'error');
+    }
+    return;
+  }
+
+  if (e.target.id === 'inPersonPaymentForm') {
+    const fd = new FormData(e.target);
+    const userId = Number(fd.get('user_id'));
+    const amount = Number(fd.get('amount'));
+    const currentPaid = Number(fd.get('current_paid'));
+    
+    if (amount <= 0) return toast('Amount must be greater than 0', 'error');
+
+    try {
+      const newPaid = currentPaid + amount;
+      const refNo = 'PAY-ACC-' + Date.now().toString().slice(-6);
+
+      await supa('applications', { method: 'PATCH', match: { user_id: userId }, body: { amount_paid: newPaid } });
+      
+      await supa('payment_logs', {
+        method: 'POST',
+        body: {
+          user_id: userId,
+          amount: amount,
+          reference_no: refNo,
+          payment_type: fd.get('payment_type'),
+          processed_by: 'Accounting'
+        }
+      });
+
+      toast('In-person payment recorded.');
+      document.getElementById('accStudentModal')?.remove();
+      renderAll();
+    } catch (err) {
+      console.error(err);
+      toast('Failed to record payment.', 'error');
+    }
+    return;
+  }
+});
+
+window.logout = () => { doLogout(() => renderAll()); };
+
+window.currentView = 'dashboard';
+window.currentStep = 1;
+window.facultySearch = '';
+window.facultyFilterYear = '';
+window.facultyFilterProg = '';
+window.presetFilterProg = 'all';
+window.presetFilterYear = 'all';
+window.facultyCourseFilterProg = 'all';
+window.facultySelectedStudent = null;
+window.accSearch = '';
+renderAll();
