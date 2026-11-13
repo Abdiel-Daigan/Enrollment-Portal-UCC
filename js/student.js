@@ -272,8 +272,8 @@ function renderStepReview(app) {
   `;
 }
 
-// --- NEW PAYMENT TAB ---
-export async function renderPaymentTab(app, subjects, courses) {
+// --- PAYMENT TAB (Accepts dynamic settings) ---
+export async function renderPaymentTab(app, subjects, courses, settings) {
   let totalUnits = 0;
   let subjectsHtml = '';
 
@@ -291,9 +291,9 @@ export async function renderPaymentTab(app, subjects, courses) {
     }
   });
 
-  const tuition = totalUnits * 444;
-  const misc = 5452;
-  const reg = 1000;
+  const tuition = totalUnits * settings.tuition_per_unit;
+  const misc = settings.misc_fee;
+  const reg = settings.reg_fee;
   const total = tuition + misc + reg;
   const paid = Number(app.amount_paid || 0);
   const balance = total - paid;
@@ -316,7 +316,7 @@ export async function renderPaymentTab(app, subjects, courses) {
         <div class="rp-card" style="background:var(--mint-50);">
           <div class="rp-card-head"><h3>Summary of Fees</h3></div>
           <div style="display:flex; justify-content:space-between; padding: 8px 0; border-bottom:1px solid #eee;">
-            <span>Tuition Fee (${totalUnits} units × ₱444)</span>
+            <span>Tuition Fee (${totalUnits} units × ₱${settings.tuition_per_unit})</span>
             <strong>₱${tuition.toLocaleString('en-PH', {minimumFractionDigits:2})}</strong>
           </div>
           <div style="display:flex; justify-content:space-between; padding: 8px 0; border-bottom:1px solid #eee;">
@@ -363,7 +363,7 @@ export async function renderPaymentTab(app, subjects, courses) {
   `;
 }
 
-// --- REDESIGNED SCHEDULE TAB ---
+// --- SCHEDULE TAB ---
 export async function renderScheduleTab(app, subjects, courses) {
   let pr = app.program || {};
   if (typeof pr === 'string') { try { pr = JSON.parse(pr); } catch(e){} }
@@ -374,8 +374,8 @@ export async function renderScheduleTab(app, subjects, courses) {
   const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
   
   let blocks = [];
-  let minTime = 8 * 60; // 8 AM default
-  let maxTime = 17 * 60; // 5 PM default
+  let minTime = 8 * 60;
+  let maxTime = 17 * 60;
 
   subjects.forEach(s => {
     const c = courses.find(x => String(x.id) === String(s.course_id));
@@ -402,13 +402,11 @@ export async function renderScheduleTab(app, subjects, courses) {
 
   let tableHtml = `<div class="timetable">`;
   
-  // Headers
   tableHtml += `<div class="tt-header" style="grid-row:1; grid-column:1;">Time</div>`;
   days.forEach((d, i) => {
     tableHtml += `<div class="tt-header" style="grid-row:1; grid-column:${i+2};">${d.slice(0,3)}</div>`;
   });
 
-  // Rows and Empty Cells (This draws the grid lines)
   for (let i = 0; i < slotsCount; i++) {
     const row = i + 2; 
     const hour = startHour + Math.floor(i / 2);
@@ -421,16 +419,13 @@ export async function renderScheduleTab(app, subjects, courses) {
       timeLabel = `${displayHour} ${ampm}`;
     }
     
-    // Time Column
     tableHtml += `<div class="tt-time" style="grid-row:${row}; grid-column:1;">${timeLabel}</div>`;
     
-    // Empty Day Columns (Creates the graph background)
     days.forEach((_, j) => {
       tableHtml += `<div class="tt-cell" style="grid-row:${row}; grid-column:${j+2};"></div>`;
     });
   }
 
-  // Class Blocks
   blocks.forEach(b => {
     const startRow = 2 + Math.floor((b.startMin - startHour * 60) / 30);
     const endRow = 2 + Math.ceil((b.endMin - startHour * 60) / 30);
@@ -477,8 +472,8 @@ export async function renderScheduleTab(app, subjects, courses) {
   `;
 }
 
-// --- NEW REGISTRATION FORM TAB ---
-export async function renderRegistrationTab(app, subjects, courses) {
+// --- REGISTRATION FORM TAB (Accepts dynamic settings) ---
+export async function renderRegistrationTab(app, subjects, courses, settings) {
   let totalUnits = 0;
   let subjectsHtml = '';
 
@@ -496,9 +491,9 @@ export async function renderRegistrationTab(app, subjects, courses) {
     }
   });
 
-  const tuition = totalUnits * 444;
-  const misc = 5452;
-  const reg = 1000;
+  const tuition = totalUnits * settings.tuition_per_unit;
+  const misc = settings.misc_fee;
+  const reg = settings.reg_fee;
   const total = tuition + misc + reg;
   const paid = Number(app.amount_paid || 0);
 
@@ -547,7 +542,7 @@ export async function renderRegistrationTab(app, subjects, courses) {
           <tr>
             <td style="border:1px solid #000; padding:4px; font-weight:bold;" colspan="2">TOTAL TUITION</td>
             <td style="border:1px solid #000; padding:4px; text-align:center; font-weight:bold;">${totalUnits}</td>
-            <td style="border:1px solid #000; padding:4px; text-align:center;">444</td>
+            <td style="border:1px solid #000; padding:4px; text-align:center;">${settings.tuition_per_unit}</td>
             <td style="border:1px solid #000; padding:4px; text-align:right; font-weight:bold;">${tuition.toLocaleString('en-PH', {minimumFractionDigits:2})}</td>
           </tr>
           <tr>
