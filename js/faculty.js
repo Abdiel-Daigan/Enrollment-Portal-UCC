@@ -70,7 +70,7 @@ export async function renderFacultyProgress() {
       const programCourses = courses.filter(c => String(c.program_id) === String(progId) || String(c.program_id) === '0');
       const taken = subjects.filter(s => String(s.user_id) === String(student.id));
       
-      // Calculate what's available (exclude confirmed AND exclude from temp list)
+      // Filter out confirmed subjects AND those currently in the temporary pre-confirmed list
       const confirmedIds = taken.map(t => String(t.course_id));
       const tempIds = window.tempStudentSubjects.map(t => String(t.courseId));
       
