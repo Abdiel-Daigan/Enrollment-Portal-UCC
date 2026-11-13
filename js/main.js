@@ -34,7 +34,7 @@ export async function renderAll() {
     return;
   }
 
-  // STUDENT NAVBAR (Name + Logout Button)
+  // STUDENT NAVBAR
   navbar.innerHTML = `
     <div class="nav-brand">
       <div class="nav-brand-text"><span class="b1">UNIDA</span><span class="b2">CHRISTIAN COLLEGES</span></div>
@@ -276,11 +276,37 @@ document.addEventListener('click', async (e) => {
   }
 });
 
-// GLOBAL CHANGE LISTENERS (DROPDOWNS)
+// GLOBAL CHANGE LISTENERS (Filters, Dropdowns, Search)
 document.addEventListener('change', (e) => {
-  if (e.target.dataset.change === 'facultyStudent') {
+  const key = e.target.dataset.change;
+  if (!key) return;
+
+  if (key === 'facultyStudent') {
     window.facultyStudent = e.target.value;
     renderAll();
+  } else if (key === 'facultyFilterYear') {
+    window.facultyFilterYear = e.target.value;
+    renderAll();
+  } else if (key === 'facultyFilterProg') {
+    window.facultyFilterProg = e.target.value;
+    renderAll();
+  }
+});
+
+// GLOBAL INPUT LISTENER (Live Search)
+document.addEventListener('input', (e) => {
+  if (e.target.dataset.change === 'facultySearch') {
+    window.facultySearch = e.target.value;
+    clearTimeout(window.searchTimer);
+    window.searchTimer = setTimeout(() => {
+      const pos = e.target.selectionStart;
+      renderAll();
+      const nextInput = document.querySelector('[data-change="facultySearch"]');
+      if (nextInput) {
+        nextInput.focus();
+        nextInput.setSelectionRange(pos, pos);
+      }
+    }, 300);
   }
 });
 
@@ -298,41 +324,14 @@ document.addEventListener('submit', async (e) => {
     let app = existing[0] || { personal: {}, education: {}, program: {}, documents: {}, doc_type: null, submitted: false };
     const fd = new FormData(e.target);
 
-    if (step === 1) {
-      app.personal = { 
-        first_name: fd.get('first_name'), 
-        middle_name: fd.get('middle_name'), 
-        last_name: fd.get('last_name'), 
-        email: fd.get('email'), 
-        phone: fd.get('phone'), 
-        address: fd.get('address') 
-      };
-    } else if (step === 2) {
-      app.education = { 
-        elem: { school: fd.get('elem_school'), year: fd.get('elem_year') }, 
-        jhs: { school: fd.get('jhs_school'), year: fd.get('jhs_year') }, 
-        shs: { school: fd.get('shs_school'), year: fd.get('shs_year') } 
-      };
-    } else if (step === 3) {
-      // UPDATE: Save the year_level to the database
-      app.program = { 
-        preferred: fd.get('preferred'),
-        year_level: fd.get('year_level')
-      };
-    }
+    if (step === 1) app.personal = { first_name: fd.get('first_name'), middle_name: fd.get('middle_name'), last_name: fd.get('last_name'), email: fd.get('email'), phone: fd.get('phone'), address: fd.get('address') };
+    else if (step === 2) app.education = { elem: { school: fd.get('elem_school'), year: fd.get('elem_year') }, jhs: { school: fd.get('jhs_school'), year: fd.get('jhs_year') }, shs: { school: fd.get('shs_school'), year: fd.get('shs_year') } };
+    else if (step === 3) app.program = { preferred: fd.get('preferred'), year_level: fd.get('year_level') };
 
     await supa('applications', {
       method: existing.length ? 'PATCH' : 'POST',
       match: existing.length ? { user_id: user.userId } : undefined,
-      body: { 
-        user_id: user.userId, 
-        personal: app.personal, 
-        education: app.education, 
-        program: app.program, 
-        documents: app.documents || {}, 
-        doc_type: app.doc_type || null, 
-        submitted: false 
-      }
+      body: { user_id: user.userId, personal: app.personal, education: app.education, program: app.program, documents: app.documents || {}, doc_type: app.doc_type || null, submitted: false }
     });
 
     window.currentStep = step + 1;
@@ -340,7 +339,7 @@ document.addEventListener('submit', async (e) => {
     return;
   }
 
-  // Faculty Add Subject
+  // Faculty Add Subject to Student
   if (e.target.id === 'facultyAddSubjectForm') {
     const fd = new FormData(e.target);
     const studentId = Number(fd.get('student_id'));
@@ -362,8 +361,8 @@ document.addEventListener('submit', async (e) => {
       code: fd.get('code'),
       title: fd.get('title'),
       units: Number(fd.get('units')),
-      program_id: Number(fd.get('program_id')),
-      department_id: Number(fd.get('department_id'))
+      schedule: fd.get('schedule'),
+      program_id: Number(fd.get('program_id'))
     };
 
     try {
@@ -433,6 +432,4 @@ window.deleteStudent = async (userId) => {
   }
 };
 
-window.currentView = 'dashboard';
-window.currentStep = 1;
-renderAll();
+window.currentView = '
