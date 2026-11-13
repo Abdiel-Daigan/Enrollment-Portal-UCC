@@ -63,9 +63,7 @@ export async function renderStudentDashboard() {
           </div>
           <div class="rp-notice info" style="margin-bottom:0; width: 100%;">
             <span>ℹ️</span>
-            <span>${app.status === 'Approved' 
-              ? 'Congratulations! Your enrollment is approved. Please check your schedule with the Registrar.' 
-              : 'Please wait for the Faculty to assign your subjects and for Accounting to clear your payment.'}</span>
+            <span>Please wait for the Faculty to assign your subjects. Once assigned, your Payment tab will appear.</span>
           </div>
         </div>
       ` : `
@@ -91,7 +89,7 @@ export async function renderApply() {
 
   let html = '';
   if (app.submitted) {
-    html = `<div class="success-wrap"><div class="success-check">✓</div><h2>Application Submitted!</h2><p>Wait for the Faculty and Admin to process your enrollment.</p></div>`;
+    html = `<div class="success-wrap"><div class="success-check">✓</div><h2>Application Submitted!</h2><p>Wait for the Faculty to assign your subjects.</p></div>`;
   } else {
     switch(step) {
       case 1: html = renderStepPersonal(app); break;
@@ -259,6 +257,262 @@ function renderStepReview(app) {
     <div class="apply-footer">
       <button type="button" class="btn btn-outline" data-action="prevStep" data-step="5">← Back</button>
       <button type="button" class="btn btn-gold" data-action="submitApplication">✈ Submit Application</button>
+    </div>
+  `;
+}
+
+// --- NEW PAYMENT TAB ---
+export async function renderPaymentTab(app, subjects, courses) {
+  let totalUnits = 0;
+  let subjectsHtml = '';
+
+  subjects.forEach(s => {
+    const c = courses.find(x => String(x.id) === String(s.course_id));
+    if (c) {
+      totalUnits += Number(c.units);
+      subjectsHtml += `
+        <tr>
+          <td>${esc(c.code)}</td>
+          <td>${esc(c.title)}</td>
+          <td style="text-align:center">${c.units}</td>
+        </tr>
+      `;
+    }
+  });
+
+  const tuition = totalUnits * 444;
+  const misc = 5452;
+  const reg = 1000;
+  const total = tuition + misc + reg;
+  const paid = Number(app.amount_paid || 0);
+  const balance = total - paid;
+
+  return `
+    <div class="progress-card">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+        <h3>Payment Assessment</h3>
+        <span class="rp-badge ${balance <= 0 ? 'green' : 'gold'}">${balance <= 0 ? 'Fully Paid' : 'Pending Payment'}</span>
+      </div>
+
+      <div class="rp-table-wrap" style="margin-bottom: 24px;">
+        <table class="rp-table">
+          <thead><tr><th>Course Code</th><th>Description</th><th style="text-align:center">Units</th></tr></thead>
+          <tbody>${subjectsHtml}</tbody>
+        </table>
+      </div>
+
+      <div class="rp-grid-2">
+        <div class="rp-card" style="background:var(--mint-50);">
+          <div class="rp-card-head"><h3>Summary of Fees</h3></div>
+          <div style="display:flex; justify-content:space-between; padding: 8px 0; border-bottom:1px solid #eee;">
+            <span>Tuition Fee (${totalUnits} units × ₱444)</span>
+            <strong>₱${tuition.toLocaleString('en-PH', {minimumFractionDigits:2})}</strong>
+          </div>
+          <div style="display:flex; justify-content:space-between; padding: 8px 0; border-bottom:1px solid #eee;">
+            <span>Miscellaneous Fees</span>
+            <strong>₱${misc.toLocaleString('en-PH', {minimumFractionDigits:2})}</strong>
+          </div>
+          <div style="display:flex; justify-content:space-between; padding: 8px 0; border-bottom:1px solid #eee;">
+            <span>Registration Fee</span>
+            <strong>₱${reg.toLocaleString('en-PH', {minimumFractionDigits:2})}</strong>
+          </div>
+          <div style="display:flex; justify-content:space-between; padding: 12px 0; font-size:18px; color:var(--mint-800); font-weight:800;">
+            <span>TOTAL AMOUNT DUE</span>
+            <span>₱${total.toLocaleString('en-PH', {minimumFractionDigits:2})}</span>
+          </div>
+        </div>
+
+        <div class="rp-card">
+          <div class="rp-card-head"><h3>Payment Details</h3></div>
+          <div style="display:flex; justify-content:space-between; padding: 8px 0; border-bottom:1px solid #eee;">
+            <span>Amount Paid</span>
+            <strong style="color:var(--mint-600)">₱${paid.toLocaleString('en-PH', {minimumFractionDigits:2})}</strong>
+          </div>
+          <div style="display:flex; justify-content:space-between; padding: 8px 0;">
+            <span>Remaining Balance</span>
+            <strong style="color:var(--danger)">₱${balance.toLocaleString('en-PH', {minimumFractionDigits:2})}</strong>
+          </div>
+
+          ${balance > 0 ? `
+            <div style="margin-top:20px; border-top:1px solid #eee; padding-top:20px;">
+              <p class="rp-hint" style="margin-bottom:10px;">Select payment option (Simulated):</p>
+              <div style="display:flex; gap:10px; flex-direction:column;">
+                <button class="btn btn-primary" onclick="window.payTuition('half', ${total}, ${paid})">Pay Downpayment (50%)</button>
+                <button class="btn btn-gold" onclick="window.payTuition('full', ${total}, ${paid})">Pay Full Balance</button>
+              </div>
+            </div>
+          ` : `
+            <div class="rp-notice mint" style="margin-top:20px;">
+              <span>✅</span><span>Your tuition is fully paid. You can now view your Schedule and Registration Form.</span>
+            </div>
+          `}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+// --- NEW SCHEDULE TAB ---
+export async function renderScheduleTab(app, subjects, courses) {
+  let pr = app.program || {};
+  if (typeof pr === 'string') { try { pr = JSON.parse(pr); } catch(e){} }
+  
+  const PROG_NAMES = { '1': 'BEEd', '2': 'BSEd', '8': 'BSCS' };
+  const progName = PROG_NAMES[pr.preferred] || 'Unknown';
+
+  let rows = '';
+  subjects.forEach(s => {
+    const c = courses.find(x => String(x.id) === String(s.course_id));
+    if (c) {
+      rows += `
+        <tr>
+          <td><strong>${esc(c.code)}</strong></td>
+          <td>${esc(c.title)}</td>
+          <td>${esc(c.schedule_day || 'TBA')}</td>
+          <td>${esc(c.schedule_time || 'TBA')}</td>
+          <td>Room: ${esc(c.room || 'TBA')}</td>
+        </tr>
+      `;
+    }
+  });
+
+  return `
+    <div class="progress-card">
+      <div class="rp-card-head" style="margin-bottom:20px;">
+        <h3>Class Schedule</h3>
+        <span class="rp-badge green">${progName} - Year ${esc(pr.year_level || '?')} · ${esc(pr.semester || '1st Semester')}</span>
+      </div>
+      <div class="rp-table-wrap">
+        <table class="rp-table">
+          <thead><tr><th>Code</th><th>Subject</th><th>Day</th><th>Time</th><th>Location</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+// --- NEW REGISTRATION FORM TAB ---
+export async function renderRegistrationTab(app, subjects, courses) {
+  let totalUnits = 0;
+  let subjectsHtml = '';
+
+  subjects.forEach(s => {
+    const c = courses.find(x => String(x.id) === String(s.course_id));
+    if (c) {
+      totalUnits += Number(c.units);
+      subjectsHtml += `
+        <tr>
+          <td style="border:1px solid #000; padding:4px;">${esc(c.code)}</td>
+          <td style="border:1px solid #000; padding:4px;">${esc(c.title)}</td>
+          <td style="border:1px solid #000; padding:4px; text-align:center;">${c.units}</td>
+        </tr>
+      `;
+    }
+  });
+
+  const tuition = totalUnits * 444;
+  const misc = 5452;
+  const reg = 1000;
+  const total = tuition + misc + reg;
+  const paid = Number(app.amount_paid || 0);
+
+  let pr = app.program || {};
+  if (typeof pr === 'string') { try { pr = JSON.parse(pr); } catch(e){} }
+  const PROG_NAMES = { '1': 'BEEd', '2': 'BSEd', '8': 'BSCS' };
+  const progName = PROG_NAMES[pr.preferred] || 'Unknown';
+  const fullName = app.personal ? `${app.personal.first_name} ${app.personal.middle_name || ''} ${app.personal.last_name}`.trim() : session.name;
+
+  return `
+    <div class="progress-card" style="background:#fff; color:#000; font-family: 'Times New Roman', Times, serif; max-width: 800px; margin: 0 auto; padding: 40px;">
+      
+      <!-- HEADER -->
+      <div style="text-align:center; margin-bottom:20px;">
+        <h2 style="font-size:16px; font-weight:bold; margin-bottom:5px;">UNIDA CHRISTIAN COLLEGES</h2>
+        <p style="font-size:12px;">Unida Street Anabu I-F, Imus City, Cavite</p>
+        <h3 style="font-size:14px; font-weight:bold; margin-top:10px;">COLLEGE DEPARTMENT</h3>
+        <p style="font-size:10px; text-align:right;">STUDENT'S COPY</p>
+      </div>
+
+      <!-- DETAILS -->
+      <div style="display:flex; justify-content:space-between; font-size:12px; margin-bottom:10px;">
+        <div>
+          <p><strong>Schedule of Payment</strong></p>
+          <p style="margin-top:10px;">NAME: <span style="border-bottom:1px solid #000; display:inline-block; width:200px;">${esc(fullName).toUpperCase()}</span></p>
+          <p style="margin-top:5px;">COURSE AND YEAR: <span style="border-bottom:1px solid #000; display:inline-block; width:150px;">${progName} - YEAR ${esc(pr.year_level || '?')}</span></p>
+        </div>
+        <div style="text-align:right;">
+          <p>AY: <strong>2025-2026</strong></p>
+          <p>SEMESTER: <strong>${esc(pr.semester || '1st Semester').toUpperCase()}</strong></p>
+        </div>
+      </div>
+
+      <!-- TABLE -->
+      <table style="width:100%; border-collapse:collapse; font-size:11px; margin-bottom:20px;">
+        <thead>
+          <tr style="border:1px solid #000; text-align:center; font-weight:bold;">
+            <th style="border:1px solid #000; padding:4px;" colspan="2">SUBJECTS</th>
+            <th style="border:1px solid #000; padding:4px;">No. of Units</th>
+            <th style="border:1px solid #000; padding:4px;">Amount per Unit</th>
+            <th style="border:1px solid #000; padding:4px;">TOTAL TUITION FEE</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${subjectsHtml}
+          <tr>
+            <td style="border:1px solid #000; padding:4px; font-weight:bold;" colspan="2">TOTAL TUITION</td>
+            <td style="border:1px solid #000; padding:4px; text-align:center; font-weight:bold;">${totalUnits}</td>
+            <td style="border:1px solid #000; padding:4px; text-align:center;">444</td>
+            <td style="border:1px solid #000; padding:4px; text-align:right; font-weight:bold;">${tuition.toLocaleString('en-PH', {minimumFractionDigits:2})}</td>
+          </tr>
+          <tr>
+            <td style="border:1px solid #000; padding:4px;" colspan="4">REGISTRATION</td>
+            <td style="border:1px solid #000; padding:4px; text-align:right;">${reg.toLocaleString('en-PH', {minimumFractionDigits:2})}</td>
+          </tr>
+          <tr>
+            <td style="border:1px solid #000; padding:4px;" colspan="4">MISCELLANEOUS FEES</td>
+            <td style="border:1px solid #000; padding:4px; text-align:right;">${misc.toLocaleString('en-PH', {minimumFractionDigits:2})}</td>
+          </tr>
+          <tr>
+            <td style="border:1px solid #000; padding:4px; font-weight:bold;" colspan="4">TOTAL</td>
+            <td style="border:1px solid #000; padding:4px; text-align:right; font-weight:bold;">${total.toLocaleString('en-PH', {minimumFractionDigits:2})}</td>
+          </tr>
+          <tr>
+            <td style="border:1px solid #000; padding:4px; font-weight:bold; color:green;" colspan="4">AMOUNT PAID</td>
+            <td style="border:1px solid #000; padding:4px; text-align:right; font-weight:bold; color:green;">${paid.toLocaleString('en-PH', {minimumFractionDigits:2})}</td>
+          </tr>
+          <tr>
+            <td style="border:1px solid #000; padding:4px; font-weight:bold; color:red;" colspan="4">REMAINING BALANCE</td>
+            <td style="border:1px solid #000; padding:4px; text-align:right; font-weight:bold; color:red;">${(total - paid).toLocaleString('en-PH', {minimumFractionDigits:2})}</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <!-- STAMP -->
+      <div style="display:flex; justify-content:center; margin:30px 0;">
+        <div style="border: 3px solid #2e7d32; color: #2e7d32; padding: 10px 30px; border-radius: 8px; text-align:center; transform: rotate(-5deg);">
+          <p style="font-size:12px; font-weight:bold; margin-bottom:5px;">UCC ADMISSIONS OFFICE</p>
+          <p style="font-size:28px; font-weight:900; letter-spacing:2px;">ENROLLED</p>
+          <p style="font-size:12px;">Date: ${new Date().toLocaleDateString()}</p>
+        </div>
+      </div>
+
+      <!-- SIGNATURES -->
+      <div style="display:flex; justify-content:space-between; font-size:11px; margin-top:40px;">
+        <div style="text-align:center;">
+          <p>Checked by:</p>
+          <div style="border-bottom:1px solid #000; width:150px; margin:20px auto 5px;"></div>
+          <p>Ms. Analee I. Ramos</p>
+          <p style="font-weight:bold;">Registrar Head</p>
+        </div>
+        <div style="text-align:center;">
+          <p>Approved by:</p>
+          <div style="border-bottom:1px solid #000; width:150px; margin:20px auto 5px;"></div>
+          <p>Dr. Ruthmita Rozul</p>
+          <p style="font-weight:bold;">College Director</p>
+        </div>
+      </div>
+
     </div>
   `;
 }
