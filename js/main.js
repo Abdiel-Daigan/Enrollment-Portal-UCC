@@ -182,4 +182,374 @@ window.tempAddSubject = (studentId) => {
     listDiv.innerHTML = window.tempStudentSubjects.map((s, idx) => `
       <div style="display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid #eee;">
         <div>
-          <div style="font-size:13px; font-weight:600;">
+          <div style="font-size:13px; font-weight:600;">${esc(s.code)} — ${esc(s.title)}</div>
+          <div class="rp-hint">${s.units} units</div>
+        </div>
+        <button type="button" class="rp-btn rp-btn-danger rp-btn-sm" onclick="window.removeTempSubject(${idx})">✕</button>
+      </div>
+    `).join('');
+    document.getElementById('btnConfirmSubjects').style.display = 'block';
+  }
+};
+
+window.removeTempSubject = (idx) => {
+  window.tempStudentSubjects.splice(idx, 1);
+  const listDiv = document.getElementById('tempSubjectList');
+  if (listDiv) {
+    listDiv.innerHTML = window.tempStudentSubjects.map((s, i) => `
+      <div style="display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid #eee;">
+        <div>
+          <div style="font-size:13px; font-weight:600;">${esc(s.code)} — ${esc(s.title)}</div>
+          <div class="rp-hint">${s.units} units</div>
+        </div>
+        <button type="button" class="rp-btn rp-btn-danger rp-btn-sm" onclick="window.removeTempSubject(${i})">✕</button>
+      </div>
+    `).join('');
+    if (!window.tempStudentSubjects.length) {
+      document.getElementById('btnConfirmSubjects').style.display = 'none';
+    }
+  }
+};
+
+window.confirmStudentSubjects = async (studentId) => {
+  if (!window.tempStudentSubjects.length) return;
+  
+  try {
+    for (const sub of window.tempStudentSubjects) {
+      await supa('student_subjects', { method: 'POST', body: { user_id: Number(studentId), course_id: Number(sub.courseId), status: 'Enrolled' } });
+    }
+    toast('Subjects confirmed and added to student!');
+    window.tempStudentSubjects = [];
+    renderAll();
+  } catch (err) {
+    toast('Failed to confirm subjects.', 'error');
+  }
+};
+
+window.facultyApplyPreset = async (presetId, studentId) => {
+  try {
+    const presetSubs = await supa('preset_subjects', { match: { preset_id: presetId } });
+    if (!presetSubs.length) return toast('Preset has no subjects.', 'error');
+
+    for (const ps of presetSubs) {
+      // Check if student already has it
+      const existing = await supa('student_subjects', { match: { user_id: studentId, course_id: ps.course_id } });
+      if (!existing.length) {
+        await supa('student_subjects', { method: 'POST', body: { user_id: Number(studentId), course_id: Number(ps.course_id), status: 'Enrolled' } });
+      }
+    }
+    toast('Preset applied to student!');
+    renderAll();
+  } catch (err) {
+    toast('Failed to apply preset.', 'error');
+  }
+};
+
+// --- TEMP STATE FOR PRESET EDITOR ---
+window.addPresetSubjectTemp = async (presetId) => {
+  const input = document.getElementById('presetCodeInput');
+  const code = input.value.trim().toUpperCase();
+  const errDiv = document.getElementById('presetErrorMsg');
+  
+  if (!code) return;
+  
+  // Search the courses table for this code
+  const courses = await supa('courses');
+  const course = courses.find(c => c.code.toUpperCase() === code);
+  
+  if (!course) {
+    errDiv.textContent = "Course code does not exist!";
+    errDiv.style.display = 'block';
+    return;
+  }
+  errDiv.style.display = 'none';
+  
+  // Check if already in temp list
+  if (window.tempPresetSubjects.some(s => String(s.id) === String(course.id))) {
+    errDiv.textContent = "Subject is already in the preset.";
+    errDiv.style.display = 'block';
+    return;
+  }
+
+  // Add to temp list
+  window.tempPresetSubjects.push({ ...course, psId: 'NEW' });
+  input.value = '';
+  
+  // Re-render list
+  const listContainer = document.getElementById('presetSubjectListContainer');
+  if (listContainer) {
+    listContainer.innerHTML = window.tempPresetSubjects.map(c => `
+      <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #eee; padding:10px 0;">
+        <div>
+          <div style="font-weight:600; font-size:13px;">${esc(c.code)} — ${esc(c.title)}</div>
+          <div class="rp-hint">${c.units} units</div>
+        </div>
+        <button type="button" class="rp-btn rp-btn-danger rp-btn-sm" onclick="window.removePresetSubjectTemp('${c.psId}', '${c.id}')">Remove</button>
+      </div>
+    `).join('');
+  }
+};
+
+window.removePresetSubjectTemp = (psId, courseId) => {
+  if (psId !== 'NEW') {
+    window.tempDeletedPSIds.push(psId);
+  }
+  window.tempPresetSubjects = window.tempPresetSubjects.filter(s => String(s.id) !== String(courseId));
+  
+  const listContainer = document.getElementById('presetSubjectListContainer');
+  if (listContainer) {
+    listContainer.innerHTML = window.tempPresetSubjects.map(c => `
+      <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #eee; padding:10px 0;">
+        <div>
+          <div style="font-weight:600; font-size:13px;">${esc(c.code)} — ${esc(c.title)}</div>
+          <div class="rp-hint">${c.units} units</div>
+        </div>
+        <button type="button" class="rp-btn rp-btn-danger rp-btn-sm" onclick="window.removePresetSubjectTemp('${c.psId}', '${c.id}')">Remove</button>
+      </div>
+    `).join('');
+  }
+};
+
+// GLOBAL CLICKS
+document.addEventListener('click', async (e) => {
+  const navBtn = e.target.closest('[data-nav]');
+  if (navBtn) { window.currentView = navBtn.dataset.nav; window.currentStep = 1; renderAll(); return; }
+
+  const btn = e.target.closest('[data-action]');
+  if (!btn) return;
+  const action = btn.dataset.action;
+
+  if (action === 'authTab') {
+    $('.auth-tab.active').classList.remove('active');
+    btn.classList.add('active');
+    if (btn.dataset.tab === 'login') {
+      $('#loginForm').classList.remove('hidden'); $('#registerForm').classList.add('hidden');
+    } else {
+      $('#loginForm').classList.add('hidden'); $('#registerForm').classList.remove('hidden');
+    }
+    return;
+  }
+
+  if (action === 'toggleCertify') {
+    const box = $('#certifyBox'); const chk = $('#certifyCheck');
+    if (chk.checked) { chk.checked = false; box.classList.remove('checked'); box.querySelector('.check-box').textContent = ''; }
+    else { chk.checked = true; box.classList.add('checked'); box.querySelector('.check-box').textContent = '✓'; }
+    return;
+  }
+
+  if (action === 'prevStep') { window.currentStep = Number(btn.dataset.step) - 1; renderAll(); return; }
+  if (action === 'gotoStep') { window.currentStep = Number(btn.dataset.step); renderAll(); return; }
+  if (action === 'continueApp') { window.currentStep = 1; window.currentView = 'apply'; renderAll(); return; }
+
+  if (action === 'chooseDocType') {
+    const type = btn.dataset.type;
+    const user = session;
+    const existing = await supa('applications', { match: { user_id: user.userId } });
+    const app = existing[0] || {};
+    await supa('applications', {
+      method: existing.length ? 'PATCH' : 'POST',
+      match: existing.length ? { user_id: user.userId } : undefined,
+      body: { user_id: user.userId, doc_type: type, personal: app.personal || {}, education: app.education || {}, program: app.program || {}, documents: app.documents || {}, submitted: false }
+    });
+    window.currentStep = 4; renderAll(); return;
+  }
+
+  if (action === 'changeDocType') {
+    await supa('applications', { method: 'PATCH', match: { user_id: session.userId }, body: { doc_type: null, documents: {} } });
+    window.currentStep = 4; renderAll(); return;
+  }
+
+  if (action === 'submitApplication') {
+    const chk = $('#certifyCheck');
+    if (!chk || !chk.checked) return toast('Please certify your information.', 'error');
+    await supa('applications', { method: 'PATCH', match: { user_id: session.userId }, body: { submitted: true, reference: 'UCC-' + Date.now().toString().slice(-8), status: 'Pending Review' } });
+    toast('Application submitted successfully!');
+    window.currentView = 'dashboard'; renderAll(); return;
+  }
+
+  // FACULTY ACTIONS
+  if (action === 'facultyManageStudent') {
+    window.facultySelectedStudent = Number(btn.dataset.id);
+    window.tempStudentSubjects = []; // Clear temp on open
+    renderAll();
+    return;
+  }
+
+  if (action === 'facultyRemoveSubject') {
+    const subjectId = Number(btn.dataset.id);
+    try {
+      await supa('student_subjects', { method: 'DELETE', match: { id: subjectId } });
+      toast('Subject removed.');
+      renderAll();
+    } catch (err) { toast('Failed to remove.', 'error'); }
+    return;
+  }
+
+  // PRESETS ACTIONS
+  if (action === 'facultyCreatePreset') {
+    await facultyEditPresetModal(null);
+    return;
+  }
+
+  if (action === 'facultyEditPreset') {
+    await facultyEditPresetModal(Number(btn.dataset.id));
+    return;
+  }
+
+  if (action === 'facultyDeletePreset') {
+    const id = Number(btn.dataset.id);
+    if (!confirm('Delete this preset?')) return;
+    try {
+      await supa('presets', { method: 'DELETE', match: { id } });
+      toast('Preset deleted.');
+      renderAll();
+    } catch (err) { toast('Failed to delete.', 'error'); }
+    return;
+  }
+
+  // ADMIN ACTIONS
+  if (action === 'adminOpenStudent') {
+    await adminOpenStudentModal(Number(btn.dataset.id)); return;
+  }
+
+  if (action === 'adminRemoveSubject') {
+    const subjectId = Number(btn.dataset.id);
+    const userId = Number(btn.dataset.user);
+    try {
+      await supa('student_subjects', { method: 'DELETE', match: { id: subjectId } });
+      toast('Subject record removed.');
+      await adminOpenStudentModal(userId); 
+    } catch (err) { toast('Failed to delete subject.', 'error'); }
+    return;
+  }
+
+  if (action === 'adminApproveEnrollment') {
+    const userId = Number(btn.dataset.id);
+    try {
+      await supa('applications', { method: 'PATCH', match: { user_id: userId }, body: { status: 'Approved' } });
+      toast('Student officially enrolled!');
+      renderAll();
+    } catch (err) { toast('Failed to approve.', 'error'); }
+    return;
+  }
+});
+
+// GLOBAL CHANGE LISTENERS
+document.addEventListener('change', async (e) => {
+  const key = e.target.dataset.change;
+  if (!key) return;
+
+  if (key === 'facultyFilterYear') {
+    window.facultyFilterYear = e.target.value;
+    renderAll();
+  } else if (key === 'facultyFilterProg') {
+    window.facultyFilterProg = e.target.value;
+    renderAll();
+  } else if (key === 'presetFilterProg') {
+    window.presetFilterProg = e.target.value;
+    renderAll();
+  } else if (key === 'presetFilterYear') {
+    window.presetFilterYear = e.target.value;
+    renderAll();
+  } else if (key === 'facultyRegularity') {
+    const studentId = Number(e.target.dataset.student);
+    const isRegular = e.target.value === 'true';
+    try {
+      await supa('applications', { method: 'PATCH', match: { user_id: studentId }, body: { is_regular: isRegular } });
+      toast('Student status updated.');
+    } catch (err) { toast('Failed to update status', 'error'); }
+  }
+});
+
+// GLOBAL FORMS
+document.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  
+  if (e.target.id === 'loginForm') { await doLogin(e.target, () => { window.currentView = 'dashboard'; renderAll(); }); return; }
+  if (e.target.id === 'registerForm') { await doRegister(e.target, () => { window.currentView = 'dashboard'; renderAll(); }); return; }
+
+  if (e.target.id === 'stepForm') {
+    const step = Number(e.target.dataset.step);
+    const user = session;
+    const existing = await supa('applications', { match: { user_id: user.userId } });
+    let app = existing[0] || { personal: {}, education: {}, program: {}, documents: {}, doc_type: null, submitted: false };
+    const fd = new FormData(e.target);
+
+    if (step === 1) app.personal = { first_name: fd.get('first_name'), middle_name: fd.get('middle_name'), last_name: fd.get('last_name'), email: fd.get('email'), phone: fd.get('phone'), address: fd.get('address') };
+    else if (step === 2) app.education = { elem: { school: fd.get('elem_school'), year: fd.get('elem_year') }, jhs: { school: fd.get('jhs_school'), year: fd.get('jhs_year') }, shs: { school: fd.get('shs_school'), year: fd.get('shs_year') } };
+    else if (step === 3) app.program = { preferred: fd.get('preferred'), year_level: fd.get('year_level') };
+
+    await supa('applications', {
+      method: existing.length ? 'PATCH' : 'POST',
+      match: existing.length ? { user_id: user.userId } : undefined,
+      body: { user_id: user.userId, personal: app.personal, education: app.education, program: app.program, documents: app.documents || {}, doc_type: app.doc_type || null, submitted: false }
+    });
+
+    window.currentStep = step + 1;
+    renderAll();
+    return;
+  }
+
+  if (e.target.id === 'facultySearchForm') {
+    const q = document.getElementById('facultySearchInput').value;
+    window.facultySearch = q;
+    renderAll();
+    return;
+  }
+
+  // Save Preset Info & Subjects
+  if (e.target.id === 'facultyPresetForm') {
+    const fd = new FormData(e.target);
+    const id = fd.get('id');
+    const payload = {
+      name: fd.get('name'),
+      program_id: Number(fd.get('program_id')),
+      year_level: Number(fd.get('year_level')),
+      semester: fd.get('semester')
+    };
+
+    try {
+      let presetId = id;
+      if (id) {
+        await supa('presets', { method: 'PATCH', match: { id: Number(id) }, body: payload });
+      } else {
+        const res = await supa('presets', { method: 'POST', body: payload });
+        presetId = res[0].id;
+      }
+
+      // Handle Deletions
+      for (const delId of window.tempDeletedPSIds) {
+        await supa('preset_subjects', { method: 'DELETE', match: { id: delId } });
+      }
+      window.tempDeletedPSIds = [];
+
+      // Handle Additions
+      const existingSubs = await supa('preset_subjects', { match: { preset_id: presetId } });
+      for (const sub of window.tempPresetSubjects) {
+        if (sub.psId === 'NEW' && !existingSubs.some(es => String(es.course_id) === String(sub.id))) {
+          await supa('preset_subjects', { method: 'POST', body: { preset_id: presetId, course_id: sub.id } });
+        }
+      }
+
+      toast('Preset saved successfully.');
+      document.getElementById('facultyPresetModal')?.remove();
+      renderAll();
+    } catch (err) {
+      console.error(err);
+      toast('Failed to save preset.', 'error');
+    }
+    return;
+  }
+});
+
+window.logout = () => { doLogout(() => renderAll()); };
+
+window.currentView = 'dashboard';
+window.currentStep = 1;
+window.facultySearch = '';
+window.facultyFilterYear = '';
+window.facultyFilterProg = '';
+window.presetFilterProg = 'all';
+window.presetFilterYear = 'all';
+window.facultySelectedStudent = null;
+renderAll();
