@@ -69,7 +69,14 @@ export async function renderFacultyProgress() {
       
       const programCourses = courses.filter(c => String(c.program_id) === String(progId) || String(c.program_id) === '0');
       const taken = subjects.filter(s => String(s.user_id) === String(student.id));
-      const availableToAdd = programCourses.filter(c => !taken.some(t => String(t.course_id) === String(c.id)));
+      
+      // Calculate what's available (exclude confirmed AND excluded from temp list)
+      const confirmedIds = taken.map(t => String(t.course_id));
+      const tempIds = window.tempStudentSubjects.map(t => String(t.courseId));
+      
+      const availableToAdd = programCourses.filter(c => 
+        !confirmedIds.includes(String(c.id)) && !tempIds.includes(String(c.id))
+      );
 
       const matchingPresets = presets.filter(p => String(p.program_id) === String(progId) && String(p.year_level) === String(pr.year_level));
 
@@ -128,7 +135,7 @@ export async function renderFacultyProgress() {
                         <div style="font-weight:600; font-size:13.5px;">${esc(mp.name)}</div>
                         <div class="rp-hint">${subCount} subjects</div>
                       </div>
-                      <button class="rp-btn rp-btn-primary rp-btn-sm" data-action="facultyApplyPreset" data-preset="${mp.id}" data-student="${student.id}">Add Preset</button>
+                      <button class="rp-btn rp-btn-primary rp-btn-sm" data-action="facultyLoadPresetToTemp" data-preset="${mp.id}">Add Preset to List</button>
                     </div>
                   `;
                 }).join('')}
@@ -144,9 +151,19 @@ export async function renderFacultyProgress() {
               <button type="button" class="rp-btn rp-btn-ghost" style="justify-content: center; border: 1px dashed var(--mint-500);" onclick="window.tempAddSubject('${student.id}')">Add to List</button>
             </form>
 
-            <div id="tempSubjectList" style="margin-top: 16px; border-top: 1px solid #eee; padding-top: 16px;"></div>
+            <div id="tempSubjectList" style="margin-top: 16px; border-top: 1px solid #eee; padding-top: 16px;">
+              ${window.tempStudentSubjects.map((s, idx) => `
+                <div style="display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid #eee;">
+                  <div>
+                    <div style="font-size:13px; font-weight:600;">${esc(s.code)} — ${esc(s.title)}</div>
+                    <div class="rp-hint">${s.units} units</div>
+                  </div>
+                  <button type="button" class="rp-btn rp-btn-danger rp-btn-sm" onclick="window.removeTempSubject(${idx})">✕</button>
+                </div>
+              `).join('')}
+            </div>
 
-            <button type="button" class="rp-btn rp-btn-primary" style="margin-top: 16px; width: 100%; display: none;" id="btnConfirmSubjects" onclick="window.confirmStudentSubjects('${student.id}')">
+            <button type="button" class="rp-btn rp-btn-primary" style="margin-top: 16px; width: 100%; display: ${window.tempStudentSubjects.length ? 'block' : 'none'};" id="btnConfirmSubjects" onclick="window.confirmStudentSubjects('${student.id}')">
               Confirm Subjects
             </button>
           </div>
@@ -270,6 +287,93 @@ export async function renderFacultyPresets() {
   `;
 }
 
+export async function renderFacultyCourses() {
+  const courses = await supa('courses');
+  const filterProg = window.facultyCourseFilterProg || 'all';
+
+  const filteredCourses = courses.filter(c => filterProg === 'all' || String(c.program_id) === String(filterProg));
+
+  return `
+    <div class="rp-grid-2">
+      <div class="rp-card">
+        <div class="rp-card-head"><h3>➕ Create New Subject</h3></div>
+        <form id="facultyCreateCourseForm" style="display:flex; flex-direction: column; gap: 10px;">
+          <div class="field-row">
+            <div class="field"><label>Course Code</label><input class="rp-input" name="code" placeholder="e.g. BSCS-101" required></div>
+            <div class="field"><label>Units</label><input class="rp-input" type="number" name="units" value="3" required></div>
+          </div>
+          <div class="field"><label>Title</label><input class="rp-input" name="title" placeholder="Introduction to Computing" required></div>
+          <div class="field-row">
+            <div class="field">
+              <label>Day</label>
+              <select class="rp-input" name="schedule_day" required>
+                ${DAYS.map(d => `<option value="${d}">${d}</option>`).join('')}
+              </select>
+            </div>
+            <div class="field-row" style="grid-template-columns: 1fr 1fr; gap: 8px;">
+              <div class="field">
+                <label>Start Time</label>
+                <input type="time" class="rp-input" name="schedule_time_start" required>
+              </div>
+              <div class="field">
+                <label>End Time</label>
+                <input type="time" class="rp-input" name="schedule_time_end" required>
+              </div>
+            </div>
+          </div>
+          <div class="field">
+            <label>Program</label>
+            <select class="rp-input" name="program_id" required>
+              <option value="0">General (All Programs)</option>
+              <option value="1">BEEd (Elementary Education)</option>
+              <option value="2">BSEd (Secondary Education)</option>
+              <option value="8">BSCS (Computer Science)</option>
+            </select>
+          </div>
+          <button type="submit" class="rp-btn rp-btn-primary" style="margin-top: 10px; justify-content: center;">Create Subject</button>
+        </form>
+      </div>
+
+      <div class="rp-card" style="display:flex; flex-direction:column;">
+        <div class="rp-card-head" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:16px;">
+          <h3 style="margin:0;">📚 Subject List</h3>
+          <select class="rp-input" data-change="facultyCourseFilterProg" style="width:auto; min-width:160px; padding:6px 12px;">
+            <option value="all">All Programs</option>
+            <option value="0" ${filterProg === '0' ? 'selected' : ''}>General Subjects</option>
+            <option value="1" ${filterProg === '1' ? 'selected' : ''}>BEEd</option>
+            <option value="2" ${filterProg === '2' ? 'selected' : ''}>BSEd</option>
+            <option value="8" ${filterProg === '8' ? 'selected' : ''}>BSCS</option>
+          </select>
+        </div>
+        
+        <div class="rp-table-wrap" style="max-height: 500px; overflow-y: auto; flex:1;">
+          <table class="rp-table">
+            <thead><tr><th>Code</th><th>Title</th><th>Prog</th><th>Units</th><th>Schedule</th><th style="text-align:right">Action</th></tr></thead>
+            <tbody>
+              ${filteredCourses.length ? filteredCourses.map(c => {
+                const pName = PROGRAMS[c.program_id] || 'Unknown';
+                const timeStr = c.schedule_time || '';
+                return `
+                <tr>
+                  <td><strong>${esc(c.code)}</strong></td>
+                  <td>${esc(c.title)}</td>
+                  <td><span class="rp-badge ${c.program_id === '0' ? 'gold' : 'green'}">${pName}</span></td>
+                  <td>${c.units}</td>
+                  <td class="rp-hint" style="white-space:nowrap;">${esc((c.schedule_day || '') + ' ' + timeStr)}</td>
+                  <td style="text-align:right; white-space:nowrap;">
+                    <button class="rp-btn rp-btn-primary rp-btn-sm" data-action="facultyEditCourse" data-id="${c.id}">Edit</button>
+                    <button class="rp-btn rp-btn-danger rp-btn-sm" data-action="facultyDeleteCourse" data-id="${c.id}">✕</button>
+                  </td>
+                </tr>
+              `}).join('') : '<tr><td colspan="6" class="rp-empty">No subjects found.</td></tr>'}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
 export async function facultyEditPresetModal(presetId) {
   const isNew = !presetId;
   let preset = { name: '', program_id: '1', year_level: '1', semester: '1st Semester' };
@@ -312,7 +416,6 @@ export async function facultyEditPresetModal(presetId) {
             
             <div>
               <h4 style="margin-bottom:10px; font-size:14px; color:var(--mint-800);">Preset Info</h4>
-              <!-- CHANGED FORM TO DIV -->
               <div id="facultyPresetForm" style="display:flex; flex-direction:column; gap:12px;">
                 <input type="hidden" id="preset_edit_id" value="${isNew ? '' : preset.id}">
                 <div class="field">
@@ -322,7 +425,7 @@ export async function facultyEditPresetModal(presetId) {
                 <div class="field">
                   <label>Program</label>
                   <select class="rp-input" id="preset_prog" required>
-                    <option value="0" ${preset.program_id === '0' ? 'selected' : ''}>General (All Programs)</option>
+                    <!-- GENERAL REMOVED -->
                     <option value="1" ${preset.program_id === '1' ? 'selected' : ''}>BEEd</option>
                     <option value="2" ${preset.program_id === '2' ? 'selected' : ''}>BSEd</option>
                     <option value="8" ${preset.program_id === '8' ? 'selected' : ''}>BSCS</option>
@@ -347,7 +450,6 @@ export async function facultyEditPresetModal(presetId) {
                     </select>
                   </div>
                 </div>
-                <!-- CHANGED BUTTON TYPE TO BUTTON WITH ACTION -->
                 <button type="button" class="rp-btn rp-btn-primary" data-action="facultySavePreset" style="margin-top:10px;">Save Preset Info</button>
               </div>
             </div>
@@ -377,5 +479,70 @@ export async function facultyEditPresetModal(presetId) {
   window.tempDeletedPSIds = [];
 
   document.getElementById('facultyPresetModal')?.remove();
+  document.body.insertAdjacentHTML('beforeend', modalHtml);
+}
+
+export async function facultyEditCourseModal(courseId) {
+  const courses = await supa('courses', { match: { id: courseId } });
+  const c = courses[0];
+  
+  let startTime = '';
+  let endTime = '';
+  if (c.schedule_time && c.schedule_time.includes('-')) {
+    const parts = c.schedule_time.split('-');
+    startTime = parts[0].trim();
+    endTime = parts[1].trim();
+  }
+
+  const modalHtml = `
+    <div class="rp-modal-backdrop" id="facultyEditCourseModal">
+      <div class="rp-modal">
+        <div class="rp-modal-head">
+          <h3>Edit Subject — ${esc(c.code)}</h3>
+          <button type="button" class="rp-btn rp-btn-ghost rp-btn-sm" onclick="document.getElementById('facultyEditCourseModal').remove()">✕</button>
+        </div>
+        <div class="rp-modal-body">
+          <form id="facultyEditCourseForm">
+            <input type="hidden" name="id" id="edit_course_id" value="${c.id}">
+            <div class="field-row">
+              <div class="field"><label>Course Code</label><input class="rp-input" id="edit_course_code" name="code" value="${esc(c.code)}" required></div>
+              <div class="field"><label>Units</label><input class="rp-input" id="edit_course_units" type="number" name="units" value="${c.units}" required></div>
+            </div>
+            <div class="field"><label>Title</label><input class="rp-input" id="edit_course_title" name="title" value="${esc(c.title)}" required></div>
+            <div class="field-row">
+              <div class="field">
+                <label>Day</label>
+                <select class="rp-input" id="edit_course_day" name="schedule_day" required>
+                  ${DAYS.map(d => `<option value="${d}" ${c.schedule_day === d ? 'selected' : ''}>${d}</option>`).join('')}
+                </select>
+              </div>
+              <div class="field-row" style="grid-template-columns: 1fr 1fr; gap: 8px;">
+                <div class="field">
+                  <label>Start Time</label>
+                  <input type="time" class="rp-input" id="edit_course_start" name="schedule_time_start" value="${startTime}" required>
+                </div>
+                <div class="field">
+                  <label>End Time</label>
+                  <input type="time" class="rp-input" id="edit_course_end" name="schedule_time_end" value="${endTime}" required>
+                </div>
+              </div>
+            </div>
+            <div class="field">
+              <label>Program</label>
+              <select class="rp-input" id="edit_course_prog" name="program_id" required>
+                <option value="0" ${c.program_id === '0' ? 'selected' : ''}>General (All Programs)</option>
+                <option value="1" ${c.program_id === '1' ? 'selected' : ''}>BEEd (Elementary Education)</option>
+                <option value="2" ${c.program_id === '2' ? 'selected' : ''}>BSEd (Secondary Education)</option>
+                <option value="8" ${c.program_id === '8' ? 'selected' : ''}>BSCS (Computer Science)</option>
+              </select>
+            </div>
+            <button type="button" class="rp-btn rp-btn-primary" data-action="facultySaveEditedCourse" style="margin-top: 20px; width:100%;">Save Changes</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.getElementById('facultyEditCourseModal')?.remove();
   document.body.insertAdjacentHTML('beforeend', modalHtml);
 }
