@@ -10,7 +10,6 @@ const PROGRAMS = {
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
-// --- DASHBOARD ---
 export async function renderFacultyDashboard() {
   const students = await supa('users', { match: { role: 'student' } });
   const apps = await supa('applications');
@@ -31,7 +30,6 @@ export async function renderFacultyDashboard() {
   `;
 }
 
-// --- CHECK STUDENTS ---
 export async function renderFacultyProgress() {
   const students = await supa('users', { match: { role: 'student' } });
   if (!students.length) return `<div class="rp-empty">No students found.</div>`;
@@ -67,15 +65,12 @@ export async function renderFacultyProgress() {
       if (typeof pr === 'string') { try { pr = JSON.parse(pr); } catch(e){} }
       const progId = pr ? pr.preferred : null;
       const progName = progId ? (PROGRAMS[progId] || 'Unknown') : 'No Program';
-      const isRegular = app.is_regular !== false; // Default to true
+      const isRegular = app.is_regular !== false;
       
       const programCourses = courses.filter(c => String(c.program_id) === String(progId) || String(c.program_id) === '0');
       const taken = subjects.filter(s => String(s.user_id) === String(student.id));
-      
-      // We only show subjects that haven't been confirmed yet in the "Add" section
       const availableToAdd = programCourses.filter(c => !taken.some(t => String(t.course_id) === String(c.id)));
 
-      // Find presets matching this student's program and year
       const matchingPresets = presets.filter(p => String(p.program_id) === String(progId) && String(p.year_level) === String(pr.year_level));
 
       return `
@@ -122,7 +117,6 @@ export async function renderFacultyProgress() {
           <div class="rp-card">
             <div class="rp-card-head"><h3>➕ Add Subjects</h3></div>
             
-            <!-- PRESET SECTION -->
             ${matchingPresets.length ? `
               <div style="margin-bottom: 20px; background:var(--mint-100); padding: 14px; border-radius: 10px;">
                 <div style="font-size:13px; font-weight:700; margin-bottom:10px; color:var(--mint-800)">Available Presets</div>
@@ -141,7 +135,6 @@ export async function renderFacultyProgress() {
               </div>
             ` : ''}
 
-            <!-- MANUAL ADD SECTION -->
             <form id="facultyAddSubjectForm" style="display:flex; gap:10px; flex-direction: column;">
               <input type="hidden" name="student_id" value="${student.id}">
               <select class="rp-input" name="course_id" required>
@@ -151,10 +144,7 @@ export async function renderFacultyProgress() {
               <button type="button" class="rp-btn rp-btn-ghost" style="justify-content: center; border: 1px dashed var(--mint-500);" onclick="window.tempAddSubject('${student.id}')">Add to List</button>
             </form>
 
-            <!-- TEMPORARY LIST (Pending Confirmation) -->
-            <div id="tempSubjectList" style="margin-top: 16px; border-top: 1px solid #eee; padding-top: 16px;">
-              <!-- Populated by JS -->
-            </div>
+            <div id="tempSubjectList" style="margin-top: 16px; border-top: 1px solid #eee; padding-top: 16px;"></div>
 
             <button type="button" class="rp-btn rp-btn-primary" style="margin-top: 16px; width: 100%; display: none;" id="btnConfirmSubjects" onclick="window.confirmStudentSubjects('${student.id}')">
               Confirm Subjects
@@ -220,11 +210,9 @@ export async function renderFacultyProgress() {
   `;
 }
 
-// --- PRESETS MANAGER ---
 export async function renderFacultyPresets() {
   const presets = await supa('presets');
   const presetSubs = await supa('preset_subjects');
-  const courses = await supa('courses');
   
   const filterProg = window.presetFilterProg || 'all';
   const filterYear = window.presetFilterYear || 'all';
@@ -322,18 +310,18 @@ export async function facultyEditPresetModal(presetId) {
         <div class="rp-modal-body">
           <div class="rp-grid-2">
             
-            <!-- LEFT: PRESET INFO -->
             <div>
               <h4 style="margin-bottom:10px; font-size:14px; color:var(--mint-800);">Preset Info</h4>
-              <form id="facultyPresetForm" style="display:flex; flex-direction:column; gap:12px;">
-                <input type="hidden" name="id" value="${isNew ? '' : preset.id}">
+              <!-- CHANGED FORM TO DIV -->
+              <div id="facultyPresetForm" style="display:flex; flex-direction:column; gap:12px;">
+                <input type="hidden" id="preset_edit_id" value="${isNew ? '' : preset.id}">
                 <div class="field">
                   <label>Preset Name</label>
-                  <input class="rp-input" name="name" value="${esc(preset.name)}" placeholder="e.g. BSCS 1st Year - 1st Sem" required>
+                  <input class="rp-input" id="preset_name" value="${esc(preset.name)}" placeholder="e.g. BSCS 1st Year - 1st Sem" required>
                 </div>
                 <div class="field">
                   <label>Program</label>
-                  <select class="rp-input" name="program_id" required>
+                  <select class="rp-input" id="preset_prog" required>
                     <option value="0" ${preset.program_id === '0' ? 'selected' : ''}>General (All Programs)</option>
                     <option value="1" ${preset.program_id === '1' ? 'selected' : ''}>BEEd</option>
                     <option value="2" ${preset.program_id === '2' ? 'selected' : ''}>BSEd</option>
@@ -343,7 +331,7 @@ export async function facultyEditPresetModal(presetId) {
                 <div class="field-row">
                   <div class="field">
                     <label>Year Level</label>
-                    <select class="rp-input" name="year_level" required>
+                    <select class="rp-input" id="preset_year" required>
                       <option value="1" ${preset.year_level === '1' ? 'selected' : ''}>1st Year</option>
                       <option value="2" ${preset.year_level === '2' ? 'selected' : ''}>2nd Year</option>
                       <option value="3" ${preset.year_level === '3' ? 'selected' : ''}>3rd Year</option>
@@ -352,18 +340,18 @@ export async function facultyEditPresetModal(presetId) {
                   </div>
                   <div class="field">
                     <label>Semester</label>
-                    <select class="rp-input" name="semester" required>
+                    <select class="rp-input" id="preset_sem" required>
                       <option value="1st Semester" ${preset.semester === '1st Semester' ? 'selected' : ''}>1st Semester</option>
                       <option value="2nd Semester" ${preset.semester === '2nd Semester' ? 'selected' : ''}>2nd Semester</option>
                       <option value="Summer" ${preset.semester === 'Summer' ? 'selected' : ''}>Summer</option>
                     </select>
                   </div>
                 </div>
-                <button type="submit" class="rp-btn rp-btn-primary" style="margin-top:10px;">Save Preset Info</button>
-              </form>
+                <!-- CHANGED BUTTON TYPE TO BUTTON WITH ACTION -->
+                <button type="button" class="rp-btn rp-btn-primary" data-action="facultySavePreset" style="margin-top:10px;">Save Preset Info</button>
+              </div>
             </div>
 
-            <!-- RIGHT: ADD SUBJECTS -->
             <div>
               <h4 style="margin-bottom:10px; font-size:14px; color:var(--mint-800);">Add Subjects</h4>
               <div style="display:flex; gap:8px;">
@@ -384,7 +372,6 @@ export async function facultyEditPresetModal(presetId) {
     </div>
   `;
 
-  // Store temporary state globally so our window functions can access it
   window.tempPresetSubjects = currentSubjects;
   window.tempPresetId = isNew ? null : preset.id;
   window.tempDeletedPSIds = [];
