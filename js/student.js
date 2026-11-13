@@ -352,7 +352,7 @@ export async function renderPaymentTab(app, subjects, courses) {
   `;
 }
 
-// --- NEW SCHEDULE TAB ---
+// --- REDESIGNED SCHEDULE TAB ---
 export async function renderScheduleTab(app, subjects, courses) {
   let pr = app.program || {};
   if (typeof pr === 'string') { try { pr = JSON.parse(pr); } catch(e){} }
@@ -360,34 +360,79 @@ export async function renderScheduleTab(app, subjects, courses) {
   const PROG_NAMES = { '1': 'BEEd', '2': 'BSEd', '8': 'BSCS' };
   const progName = PROG_NAMES[pr.preferred] || 'Unknown';
 
-  let rows = '';
+  // Group subjects by day
+  const daysOfWeek = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const scheduleByDay = {
+    'Monday': [], 'Tuesday': [], 'Wednesday': [], 'Thursday': [], 'Friday': [], 'Saturday': []
+  };
+
   subjects.forEach(s => {
     const c = courses.find(x => String(x.id) === String(s.course_id));
-    if (c) {
-      rows += `
-        <tr>
-          <td><strong>${esc(c.code)}</strong></td>
-          <td>${esc(c.title)}</td>
-          <td>${esc(c.schedule_day || 'TBA')}</td>
-          <td>${esc(c.schedule_time || 'TBA')}</td>
-          <td>Room: ${esc(c.room || 'TBA')}</td>
-        </tr>
+    if (c && c.schedule_day && daysOfWeek.includes(c.schedule_day)) {
+      scheduleByDay[c.schedule_day].push(c);
+    }
+  });
+
+  // Sort classes within each day by start time
+  daysOfWeek.forEach(day => {
+    scheduleByDay[day].sort((a, b) => {
+      const timeA = (a.schedule_time || '').split('-')[0].trim();
+      const timeB = (b.schedule_time || '').split('-')[0].trim();
+      return timeA.localeCompare(timeB);
+    });
+  });
+
+  // Build the HTML for the schedule board
+  let scheduleHtml = '';
+  daysOfWeek.forEach(day => {
+    const classes = scheduleByDay[day];
+    if (classes.length > 0) {
+      scheduleHtml += `
+        <div class="rp-card" style="margin-bottom: 20px;">
+          <div class="rp-card-head" style="background:var(--mint-100); padding:12px 18px; border-radius:12px 12px 0 0; border-bottom:1px solid var(--mint-200);">
+            <h3 style="margin:0; font-size:16px; color:var(--mint-800); letter-spacing:1px; text-transform:uppercase;">${day}</h3>
+          </div>
+          <div style="padding: 10px 18px 18px;">
+            ${classes.map((c, index) => `
+              <div style="display:flex; gap:16px; padding: 16px 0; ${index !== classes.length - 1 ? 'border-bottom: 1px dashed #ccc;' : ''}">
+                <div style="min-width: 130px;">
+                  <div style="font-weight:800; font-size:14px; color:var(--mint-700);">
+                    ${esc(c.schedule_time || 'TBA')}
+                  </div>
+                </div>
+                <div style="flex:1;">
+                  <div style="font-weight:800; font-size:15px; color:var(--ink); margin-bottom:4px;">
+                    ${esc(c.code)}
+                  </div>
+                  <div style="font-size:14px; color:var(--muted);">
+                    ${esc(c.title)}
+                  </div>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
       `;
     }
   });
 
+  if (!scheduleHtml) {
+    scheduleHtml = `<div class="rp-empty">No schedule assigned yet.</div>`;
+  }
+
   return `
-    <div class="progress-card">
-      <div class="rp-card-head" style="margin-bottom:20px;">
+    <div class="progress-card" style="margin-bottom:20px;">
+      <div class="rp-card-head" style="margin-bottom:10px;">
         <h3>Class Schedule</h3>
-        <span class="rp-badge green">${progName} - Year ${esc(pr.year_level || '?')} · ${esc(pr.semester || '1st Semester')}</span>
       </div>
-      <div class="rp-table-wrap">
-        <table class="rp-table">
-          <thead><tr><th>Code</th><th>Subject</th><th>Day</th><th>Time</th><th>Location</th></tr></thead>
-          <tbody>${rows}</tbody>
-        </table>
+      <div style="display:flex; gap:10px; flex-wrap:wrap;">
+        <span class="rp-badge green" style="padding:8px 14px; font-size:13px;">🎓 ${progName} - Year ${esc(pr.year_level || '?')}</span>
+        <span class="rp-badge gold" style="padding:8px 14px; font-size:13px;">📅 ${esc(pr.semester || '1st Semester')}</span>
       </div>
+    </div>
+
+    <div class="rp-grid-2">
+      ${scheduleHtml}
     </div>
   `;
 }
