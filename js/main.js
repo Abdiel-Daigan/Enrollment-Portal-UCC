@@ -1,7 +1,7 @@
 import { $, esc, toast, initials } from './utils.js';
 import { supa } from './api.js';
 import { session, loadSession, doLogin, doRegister, doLogout } from './auth.js';
-import { renderStudentDashboard, renderApply } from './student.js';
+import { renderStudentDashboard, renderApply, renderPaymentTab, renderScheduleTab, renderRegistrationTab } from './student.js';
 import { renderAdminDashboard, renderAdminStudents, renderAdminCourses, renderAdminEnrollments, adminOpenStudentModal } from './admin.js';
 import { renderFacultyDashboard, renderFacultyProgress, renderFacultyPresets, renderFacultyCourses, facultyEditPresetModal, facultyEditCourseModal } from './faculty.js';
 
@@ -27,13 +27,48 @@ export async function renderAll() {
   if (session.role === 'admin') { renderAdminLayout(); return; }
   if (session.role === 'faculty') { renderFacultyLayout(); return; }
 
+  // --- STUDENT ROUTING & DYNAMIC NAVBAR ---
+  
+  // 1. Fetch all necessary data
+  const apps = await supa('applications', { match: { user_id: session.userId } }).catch(() => []);
+  const app = apps[0] || {};
+  const subjects = await supa('student_subjects', { match: { user_id: session.userId } }).catch(() => []);
+  const courses = await supa('courses').catch(() => []);
+
+  const hasSubjects = subjects.length > 0;
+  const hasPaid = Number(app.amount_paid || 0) > 0;
+
+  // 2. Determine available tabs
+  let navItems = [];
+  if (!hasSubjects) {
+    navItems = [
+      { id: 'dashboard', label: 'Dashboard' },
+      { id: 'apply', label: 'Application' }
+    ];
+  } else {
+    navItems = [{ id: 'payment', label: 'Payment' }];
+    if (hasPaid) {
+      navItems.push({ id: 'schedule', label: 'Schedule' });
+      navItems.push({ id: 'registration', label: 'Registration Form' });
+    }
+  }
+
+  // Default to first available tab if current view is invalid
+  let currentView = window.currentView || 'dashboard';
+  if (!navItems.find(n => n.id === currentView)) {
+    currentView = navItems[0].id;
+    window.currentView = currentView;
+  }
+
+  // 3. Render Navbar
   navbar.innerHTML = `
     <div class="nav-brand">
       <div class="nav-brand-text"><span class="b1">UNIDA</span><span class="b2">CHRISTIAN COLLEGES</span></div>
     </div>
     <div class="nav-links">
-      <button class="nav-link" data-nav="dashboard">Dashboard</button>
-      <button class="nav-link" data-nav="apply">Application</button>
+      ${navItems.map(item => `
+        <button class="nav-link ${currentView === item.id ? 'active' : ''}" data-nav="${item.id}">${item.label}</button>
+      `).join('')}
     </div>
     <div style="display:flex; align-items:center; gap:16px;">
       <span style="font-size:14px; font-weight:600; color:#fff;">${esc(session.name)}</span>
@@ -41,12 +76,45 @@ export async function renderAll() {
     </div>
   `;
 
+  // 4. Render Content
   pageWrap.innerHTML = '<div class="progress-card">Loading...</div>';
-  const currentView = window.currentView || 'dashboard';
 
   if (currentView === 'dashboard') pageWrap.innerHTML = await renderStudentDashboard();
   else if (currentView === 'apply') pageWrap.innerHTML = await renderApply();
+  else if (currentView === 'payment') pageWrap.innerHTML = await renderPaymentTab(app, subjects, courses);
+  else if (currentView === 'schedule') pageWrap.innerHTML = await renderScheduleTab(app, subjects, courses);
+  else if (currentView === 'registration') pageWrap.innerHTML = await renderRegistrationTab(app, subjects, courses);
 }
+
+// --- SIMULATED PAYMENT ---
+window.payTuition = async (type, total, currentPaid) => {
+  let amountToAdd = 0;
+  const balance = total - currentPaid;
+
+  if (type === 'half') {
+    amountToAdd = balance / 2;
+  } else {
+    amountToAdd = balance;
+  }
+
+  if (!confirm(`Simulate paying ₱${amountToAdd.toLocaleString('en-PH', {minimumFractionDigits:2})}?`)) return;
+
+  try {
+    const newPaid = currentPaid + amountToAdd;
+    await supa('applications', {
+      method: 'PATCH',
+      match: { user_id: session.userId },
+      body: { amount_paid: newPaid }
+    });
+
+    toast('Payment successful!');
+    window.currentView = 'payment';
+    renderAll();
+  } catch (err) {
+    console.error(err);
+    toast('Payment failed.', 'error');
+  }
+};
 
 function renderAuthPage() {
   $('#authPage').innerHTML = `
@@ -178,12 +246,12 @@ window.tempAddSubject = (studentId) => {
   const units = text.match(/\((\d+)\s*units\)/)[1];
 
   window.tempStudentSubjects.push({ courseId, code, title, units });
-  renderAll(); // Instantly updates UI and removes from dropdown
+  renderAll(); 
 };
 
 window.removeTempSubject = (idx) => {
   window.tempStudentSubjects.splice(idx, 1);
-  renderAll(); // Instantly updates UI and puts subject back in dropdown
+  renderAll(); 
 };
 
 window.confirmStudentSubjects = async (studentId) => {
@@ -211,7 +279,6 @@ window.facultyLoadPresetToTemp = async (presetId) => {
     for (const ps of presetSubs) {
       const courseId = ps.course_id;
       
-      // Skip if already confirmed or already in temp
       if (currentTaken.some(t => String(t.course_id) === String(courseId))) continue;
       if (window.tempStudentSubjects.some(s => String(s.courseId) === String(courseId))) continue;
 
