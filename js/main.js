@@ -43,19 +43,26 @@ export async function renderAll() {
       { id: 'apply', label: 'Application' }
     ];
   } else {
-    navItems = [{ id: 'payment', label: 'Payment' }];
     if (hasPaid) {
-      navItems.push({ id: 'schedule', label: 'Schedule' });
-      navItems.push({ id: 'registration', label: 'Registration Form' });
+      // NEW ORDER: Schedule first, then Payment, then Registration
+      navItems = [
+        { id: 'schedule', label: 'Schedule' },
+        { id: 'payment', label: 'Payment' },
+        { id: 'registration', label: 'Registration Form' }
+      ];
+    } else {
+      navItems = [{ id: 'payment', label: 'Payment' }];
     }
   }
 
   let currentView = window.currentView || 'dashboard';
+  // If the current view is not in the allowed tabs, reset to the first one
   if (!navItems.find(n => n.id === currentView)) {
-    currentView = navItems[0].id;
+    currentView = navItems[0].id; 
     window.currentView = currentView;
   }
 
+  // Render Student Navbar
   navbar.innerHTML = `
     <div class="nav-brand">
       <div class="nav-brand-text"><span class="b1">UNIDA</span><span class="b2">CHRISTIAN COLLEGES</span></div>
@@ -71,6 +78,7 @@ export async function renderAll() {
     </div>
   `;
 
+  // Render Page Content
   pageWrap.innerHTML = '<div class="progress-card">Loading...</div>';
 
   if (currentView === 'dashboard') pageWrap.innerHTML = await renderStudentDashboard();
@@ -80,7 +88,7 @@ export async function renderAll() {
   else if (currentView === 'registration') pageWrap.innerHTML = await renderRegistrationTab(app, subjects, courses);
 }
 
-// --- SIMULATED PAYMENT ---
+// --- SIMULATED PAYMENT LOGIC ---
 window.payTuition = async (type, total, currentPaid) => {
   let amountToAdd = 0;
   const balance = Number(total) - Number(currentPaid);
@@ -95,8 +103,6 @@ window.payTuition = async (type, total, currentPaid) => {
 
   try {
     const newPaid = Number(currentPaid) + Number(amountToAdd);
-    
-    console.log("Sending payment update:", newPaid);
 
     await supa('applications', {
       method: 'PATCH',
@@ -105,7 +111,7 @@ window.payTuition = async (type, total, currentPaid) => {
     });
 
     toast('Payment successful!');
-    window.currentView = 'payment';
+    window.currentView = 'schedule'; // Redirect to schedule after payment
     renderAll();
   } catch (err) {
     console.error("Payment Error Details:", err);
