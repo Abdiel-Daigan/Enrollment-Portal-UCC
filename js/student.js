@@ -267,12 +267,12 @@ function renderStepReview(app) {
 
     <div class="apply-footer">
       <button type="button" class="btn btn-outline" data-action="prevStep" data-step="5">← Back</button>
-      <button type="button" class="btn btn-gold" data-action="submitApplication">✈ Submit Application</button>
+      <button type="button" class="btn btn-gold" data-action="submitApplication">Submit Application</button>
     </div>
   `;
 }
 
-// --- PAYMENT TAB (Accepts dynamic settings) ---
+// --- PAYMENT TAB (Subjects moved to bottom) ---
 export async function renderPaymentTab(app, subjects, courses, settings) {
   let totalUnits = 0;
   let subjectsHtml = '';
@@ -305,14 +305,7 @@ export async function renderPaymentTab(app, subjects, courses, settings) {
         <span class="rp-badge ${balance <= 0 ? 'green' : 'gold'}">${balance <= 0 ? 'Fully Paid' : 'Pending Payment'}</span>
       </div>
 
-      <div class="rp-table-wrap" style="margin-bottom: 24px;">
-        <table class="rp-table">
-          <thead><tr><th>Course Code</th><th>Description</th><th style="text-align:center">Units</th></tr></thead>
-          <tbody>${subjectsHtml}</tbody>
-        </table>
-      </div>
-
-      <div class="rp-grid-2">
+      <div class="rp-grid-2" style="margin-bottom: 24px;">
         <div class="rp-card" style="background:var(--mint-50);">
           <div class="rp-card-head"><h3>Summary of Fees</h3></div>
           <div style="display:flex; justify-content:space-between; padding: 8px 0; border-bottom:1px solid #eee;">
@@ -357,6 +350,16 @@ export async function renderPaymentTab(app, subjects, courses, settings) {
               <span>✅</span><span>Your tuition is fully paid. You can now view your Schedule and Registration Form.</span>
             </div>
           `}
+        </div>
+      </div>
+
+      <div class="rp-card">
+        <div class="rp-card-head"><h3>Subject List</h3></div>
+        <div class="rp-table-wrap">
+          <table class="rp-table">
+            <thead><tr><th>Course Code</th><th>Description</th><th style="text-align:center">Units</th></tr></thead>
+            <tbody>${subjectsHtml}</tbody>
+          </table>
         </div>
       </div>
     </div>
@@ -472,7 +475,7 @@ export async function renderScheduleTab(app, subjects, courses) {
   `;
 }
 
-// --- REGISTRATION FORM TAB (Accepts dynamic settings) ---
+// --- REGISTRATION FORM TAB ---
 export async function renderRegistrationTab(app, subjects, courses, settings) {
   let totalUnits = 0;
   let subjectsHtml = '';
