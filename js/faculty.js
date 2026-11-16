@@ -25,7 +25,7 @@ export async function renderFacultyDashboard() {
     </div>
     <div class="rp-card">
       <h3>College Department</h3>
-      <p class="rp-hint" style="margin-top:10px;">Go to <strong>Check Students</strong> to assign subjects, or <strong>Presets</strong> to manage course bundles.</p>
+      <p class="rp-hint" style="margin-top:10px;">Go to <strong>Check Students</strong> to assign subjects and manage their enrollment status.</p>
     </div>
   `;
 }
@@ -101,7 +101,6 @@ export async function renderFacultyProgress() {
         </div>
 
         <div class="rp-grid-2">
-          <!-- LEFT SIDE: Pre-Confirmed List -->
           <div class="rp-card" style="display:flex; flex-direction:column;">
             <div class="rp-card-head">
               <h3>📝 Pre-Confirmed List</h3>
@@ -125,7 +124,6 @@ export async function renderFacultyProgress() {
             </button>
           </div>
 
-          <!-- RIGHT SIDE: Add Subjects -->
           <div class="rp-card">
             <div class="rp-card-head"><h3>➕ Add Subjects</h3></div>
             
@@ -158,7 +156,6 @@ export async function renderFacultyProgress() {
           </div>
         </div>
 
-        <!-- BOTTOM FULL WIDTH: Subjects to be added -->
         <div class="rp-card" style="margin-top: 20px;">
           <div class="rp-card-head">
             <h3>📚 Subjects to be added:</h3>
@@ -239,152 +236,7 @@ export async function renderFacultyProgress() {
   `;
 }
 
-export async function renderFacultyPresets() {
-  const presets = await supa('presets');
-  const presetSubs = await supa('preset_subjects');
-  
-  const filterProg = window.presetFilterProg || 'all';
-  const filterYear = window.presetFilterYear || 'all';
-
-  const filteredPresets = presets.filter(p => {
-    const progMatch = filterProg === 'all' || String(p.program_id) === String(filterProg);
-    const yearMatch = filterYear === 'all' || String(p.year_level) === String(filterYear);
-    return progMatch && yearMatch;
-  });
-
-  return `
-    <div class="rp-toolbar" style="margin-bottom:20px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
-      <div style="display:flex; gap:10px;">
-        <select class="rp-input" data-change="presetFilterProg" style="width:160px;">
-          <option value="all">All Programs</option>
-          <option value="1" ${filterProg === '1' ? 'selected' : ''}>BEEd</option>
-          <option value="2" ${filterProg === '2' ? 'selected' : ''}>BSEd</option>
-          <option value="8" ${filterProg === '8' ? 'selected' : ''}>BSCS</option>
-        </select>
-        <select class="rp-input" data-change="presetFilterYear" style="width:140px;">
-          <option value="all">All Years</option>
-          <option value="1" ${filterYear === '1' ? 'selected' : ''}>1st Year</option>
-          <option value="2" ${filterYear === '2' ? 'selected' : ''}>2nd Year</option>
-          <option value="3" ${filterYear === '3' ? 'selected' : ''}>3rd Year</option>
-          <option value="4" ${filterYear === '4' ? 'selected' : ''}>4th Year</option>
-        </select>
-      </div>
-      <button class="rp-btn rp-btn-primary" data-action="facultyCreatePreset">＋ Create New Preset</button>
-    </div>
-
-    <div class="rp-table-wrap">
-      <table class="rp-table">
-        <thead><tr><th>Preset Name</th><th>Program</th><th>Year</th><th>Sem</th><th>Subjects</th><th style="text-align:right">Actions</th></tr></thead>
-        <tbody>
-          ${filteredPresets.length ? filteredPresets.map(p => {
-            const count = presetSubs.filter(ps => String(ps.preset_id) === String(p.id)).length;
-            const pName = PROGRAMS[p.program_id] || 'Unknown';
-            return `
-              <tr>
-                <td><strong>${esc(p.name)}</strong></td>
-                <td><span class="rp-badge ${p.program_id === '0' ? 'gold' : 'green'}">${pName}</span></td>
-                <td>Year ${p.year_level}</td>
-                <td>${esc(p.semester)}</td>
-                <td>${count} subject(s)</td>
-                <td style="text-align:right; white-space:nowrap;">
-                  <button class="rp-btn rp-btn-primary rp-btn-sm" data-action="facultyEditPreset" data-id="${p.id}">Edit</button>
-                  <button class="rp-btn rp-btn-danger rp-btn-sm" data-action="facultyDeletePreset" data-id="${p.id}">Delete</button>
-                </td>
-              </tr>
-            `;
-          }).join('') : '<tr><td colspan="6" class="rp-empty">No presets found.</td></tr>'}
-        </tbody>
-      </table>
-    </div>
-  `;
-}
-
-export async function renderFacultyCourses() {
-  const courses = await supa('courses');
-  const filterProg = window.facultyCourseFilterProg || 'all';
-
-  const filteredCourses = courses.filter(c => filterProg === 'all' || String(c.program_id) === String(filterProg));
-
-  return `
-    <div class="rp-grid-2">
-      <div class="rp-card">
-        <div class="rp-card-head"><h3>➕ Create New Subject</h3></div>
-        <form id="facultyCreateCourseForm" style="display:flex; flex-direction: column; gap: 10px;">
-          <div class="field-row">
-            <div class="field"><label>Course Code</label><input class="rp-input" name="code" placeholder="e.g. BSCS-101" required></div>
-            <div class="field"><label>Units</label><input class="rp-input" type="number" name="units" value="3" required></div>
-          </div>
-          <div class="field"><label>Title</label><input class="rp-input" name="title" placeholder="Introduction to Computing" required></div>
-          <div class="field-row">
-            <div class="field">
-              <label>Day</label>
-              <select class="rp-input" name="schedule_day" required>
-                ${DAYS.map(d => `<option value="${d}">${d}</option>`).join('')}
-              </select>
-            </div>
-            <div class="field-row" style="grid-template-columns: 1fr 1fr; gap: 8px;">
-              <div class="field">
-                <label>Start Time</label>
-                <input type="time" class="rp-input" name="schedule_time_start" required>
-              </div>
-              <div class="field">
-                <label>End Time</label>
-                <input type="time" class="rp-input" name="schedule_time_end" required>
-              </div>
-            </div>
-          </div>
-          <div class="field">
-            <label>Program</label>
-            <select class="rp-input" name="program_id" required>
-              <option value="0">General (All Programs)</option>
-              <option value="1">BEEd (Elementary Education)</option>
-              <option value="2">BSEd (Secondary Education)</option>
-              <option value="8">BSCS (Computer Science)</option>
-            </select>
-          </div>
-          <button type="submit" class="rp-btn rp-btn-primary" style="margin-top: 10px; justify-content: center;">Create Subject</button>
-        </form>
-      </div>
-
-      <div class="rp-card" style="display:flex; flex-direction:column;">
-        <div class="rp-card-head" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:16px;">
-          <h3 style="margin:0;">📚 Subject List</h3>
-          <select class="rp-input" data-change="facultyCourseFilterProg" style="width:auto; min-width:160px; padding:6px 12px;">
-            <option value="all">All Programs</option>
-            <option value="0" ${filterProg === '0' ? 'selected' : ''}>General Subjects</option>
-            <option value="1" ${filterProg === '1' ? 'selected' : ''}>BEEd</option>
-            <option value="2" ${filterProg === '2' ? 'selected' : ''}>BSEd</option>
-            <option value="8" ${filterProg === '8' ? 'selected' : ''}>BSCS</option>
-          </select>
-        </div>
-        
-        <div class="rp-table-wrap" style="max-height: 500px; overflow-y: auto; flex:1;">
-          <table class="rp-table">
-            <thead><tr><th>Code</th><th>Title</th><th>Prog</th><th>Units</th><th>Schedule</th><th style="text-align:right">Action</th></tr></thead>
-            <tbody>
-              ${filteredCourses.length ? filteredCourses.map(c => {
-                const pName = PROGRAMS[c.program_id] || 'Unknown';
-                const timeStr = c.schedule_time || '';
-                return `
-                <tr>
-                  <td><strong>${esc(c.code)}</strong></td>
-                  <td>${esc(c.title)}</td>
-                  <td><span class="rp-badge ${c.program_id === '0' ? 'gold' : 'green'}">${pName}</span></td>
-                  <td>${c.units}</td>
-                  <td class="rp-hint" style="white-space:nowrap;">${esc((c.schedule_day || '') + ' ' + timeStr)}</td>
-                  <td style="text-align:right; white-space:nowrap;">
-                    <button class="rp-btn rp-btn-primary rp-btn-sm" data-action="facultyEditCourse" data-id="${c.id}">Edit</button>
-                    <button class="rp-btn rp-btn-danger rp-btn-sm" data-action="facultyDeleteCourse" data-id="${c.id}">✕</button>
-                  </td>
-                </tr>
-              `}).join('') : '<tr><td colspan="6" class="rp-empty">No subjects found.</td></tr>'}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  `;
-}
+// --- MODALS (Kept just in case, though the tabs are removed) ---
 
 export async function facultyEditPresetModal(presetId) {
   const isNew = !presetId;
