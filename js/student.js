@@ -316,7 +316,6 @@ function renderStepDocuments(app) {
   `;
 }
 
-// NEW: Handle File Upload with resizing and Supabase Storage
 window.handleFileUpload = async (event, docId, docName) => {
   const file = event.target.files[0];
   if (!file) return;
@@ -346,11 +345,11 @@ window.handleFileUpload = async (event, docId, docName) => {
     });
 
     toast(`${docName} uploaded successfully.`);
-    window.renderAll(); // Refreshes UI immediately
+    window.renderAll(); 
     
   } catch (err) {
     console.error(err);
-    toast('Failed to upload file.', 'error');
+    toast(err.message || 'Failed to upload file.', 'error');
   }
 };
 
@@ -358,7 +357,6 @@ window.viewDocument = (url) => {
   window.open(url, '_blank');
 };
 
-// Helper to compress image using Canvas
 function compressImage(file) {
   return new Promise((resolve) => {
     const reader = new FileReader();
@@ -444,7 +442,6 @@ export async function renderStudentDocumentsTab(app) {
   `;
 }
 
-// --- PAYMENT TAB ---
 export async function renderPaymentTab(app, subjects, courses, settings) {
   let totalUnits = 0;
   let subjectsHtml = '';
@@ -538,7 +535,6 @@ export async function renderPaymentTab(app, subjects, courses, settings) {
   `;
 }
 
-// --- SCHEDULE TAB ---
 export async function renderScheduleTab(app, subjects, courses) {
   let pr = app.program || {};
   if (typeof pr === 'string') { try { pr = JSON.parse(pr); } catch(e){} }
@@ -647,7 +643,6 @@ export async function renderScheduleTab(app, subjects, courses) {
   `;
 }
 
-// --- REGISTRATION FORM TAB ---
 export async function renderRegistrationTab(app, subjects, courses, settings) {
   let totalUnits = 0;
   let subjectsHtml = '';
