@@ -59,7 +59,6 @@ export async function renderAll() {
     } else {
       navItems = [{ id: 'payment', label: 'Payment' }];
     }
-    // Add Documents tab for submitted students
     if (app.submitted) {
       navItems.push({ id: 'documents', label: 'Documents' });
     }
@@ -154,7 +153,38 @@ function renderAuthPage() {
 
 // --- ADMIN LAYOUT ---
 async function renderAdminLayout() {
-  // Keep existing Admin Layout
+  const pageWrap = $('#pageWrap');
+  $('#navbar').classList.add('hidden');
+  
+  pageWrap.innerHTML = `
+    <div class="role-shell" style="min-height: 100vh;">
+      <aside class="role-sidebar">
+        <div class="role-side-brand"><strong>Admin Portal</strong><span>Registrar</span></div>
+        <nav class="role-nav">
+          <button class="role-nav-item ${window.currentView === 'dashboard' ? 'active' : ''}" onclick="window.setAdminView('dashboard')"><span class="rni">🏠</span> Dashboard</button>
+          <button class="role-nav-item ${window.currentView === 'students' ? 'active' : ''}" onclick="window.setAdminView('students')"><span class="rni">👥</span> Students</button>
+          <button class="role-nav-item ${window.currentView === 'courses' ? 'active' : ''}" onclick="window.setAdminView('courses')"><span class="rni">📚</span> Courses</button>
+          <button class="role-nav-item ${window.currentView === 'enrollments' ? 'active' : ''}" onclick="window.setAdminView('enrollments')"><span class="rni">📝</span> Final Approvals</button>
+        </nav>
+        <div class="role-side-foot"><button onclick="window.logout()">Sign out</button></div>
+      </aside>
+      <div class="role-main">
+        <header class="role-topbar">
+          <div><h1>${window.currentView ? window.currentView.toUpperCase() : 'DASHBOARD'}</h1><div class="rt-sub">Manage system data</div></div>
+          <div class="rt-user"><div class="rt-who"><strong>${esc(session.name)}</strong><span>Admin</span></div><div class="rt-avatar">${initials(session.name)}</div></div>
+        </header>
+        <div class="role-content" id="adminContent"><div class="rp-empty">Loading...</div></div>
+      </div>
+    </div>
+  `;
+
+  const content = $('#adminContent');
+  const view = window.currentView || 'dashboard';
+
+  if (view === 'dashboard') content.innerHTML = await renderAdminDashboard();
+  else if (view === 'students') content.innerHTML = await renderAdminStudents();
+  else if (view === 'courses') content.innerHTML = await renderAdminCourses();
+  else if (view === 'enrollments') content.innerHTML = await renderAdminEnrollments();
 }
 
 window.setAdminView = (view) => { window.currentView = view; renderAll(); };
@@ -206,7 +236,38 @@ window.closeFacultyStudent = () => {
 
 // --- ACCOUNTING LAYOUT ---
 async function renderAccountingLayout() {
-  // Keep existing Accounting Layout
+  const pageWrap = $('#pageWrap');
+  $('#navbar').classList.add('hidden');
+  
+  pageWrap.innerHTML = `
+    <div class="role-shell" style="min-height: 100vh;">
+      <aside class="role-sidebar">
+        <div class="role-side-brand"><strong>Accounting Dept</strong><span>Finance</span></div>
+        <nav class="role-nav">
+          <button class="role-nav-item ${window.currentView === 'dashboard' ? 'active' : ''}" onclick="window.setAccountingView('dashboard')"><span class="rni">🏠</span> Dashboard</button>
+          <button class="role-nav-item ${window.currentView === 'logs' ? 'active' : ''}" onclick="window.setAccountingView('logs')"><span class="rni">🧾</span> Payment Logs</button>
+          <button class="role-nav-item ${window.currentView === 'students' ? 'active' : ''}" onclick="window.setAccountingView('students')"><span class="rni">👥</span> Student Payments</button>
+          <button class="role-nav-item ${window.currentView === 'settings' ? 'active' : ''}" onclick="window.setAccountingView('settings')"><span class="rni">⚙️</span> Fee Settings</button>
+        </nav>
+        <div class="role-side-foot"><button onclick="window.logout()">Sign out</button></div>
+      </aside>
+      <div class="role-main">
+        <header class="role-topbar">
+          <div><h1>${window.currentView ? window.currentView.toUpperCase() : 'DASHBOARD'}</h1><div class="rt-sub">Manage student payments</div></div>
+          <div class="rt-user"><div class="rt-who"><strong>${esc(session.name)}</strong><span>Accounting</span></div><div class="rt-avatar">${initials(session.name)}</div></div>
+        </header>
+        <div class="role-content" id="accContent"><div class="rp-empty">Loading...</div></div>
+      </div>
+    </div>
+  `;
+
+  const content = $('#accContent');
+  const view = window.currentView || 'dashboard';
+
+  if (view === 'dashboard') content.innerHTML = await renderAccountingDashboard();
+  else if (view === 'logs') content.innerHTML = await renderAccountingLogs();
+  else if (view === 'students') content.innerHTML = await renderAccountingStudents();
+  else if (view === 'settings') content.innerHTML = await renderAccountingSettings();
 }
 
 window.setAccountingView = (view) => { window.currentView = view; renderAll(); };
@@ -250,7 +311,7 @@ async function renderRegistrarLayout() {
 window.setRegistrarView = (view) => { window.currentView = view; renderAll(); };
 
 
-// --- GLOBAL HELPERS (FACULTY) ---
+// --- GLOBAL HELPERS (FACULTY & REGISTRAR) ---
 window.tempStudentSubjects = [];
 window.tempPresetSubjects = [];
 window.tempDeletedPSIds = [];
@@ -437,7 +498,153 @@ document.addEventListener('click', async (e) => {
     return;
   }
 
-  // ... (Keep the rest of the REGISTRAR, ADMIN, and ACCOUNTING actions exactly as they are in your current file) ...
+  if (action === 'regCreatePreset') {
+    await regEditPresetModal(null);
+    return;
+  }
+
+  if (action === 'regEditPreset') {
+    await regEditPresetModal(Number(btn.dataset.id));
+    return;
+  }
+
+  if (action === 'regEditCourse') {
+    await regEditCourseModal(Number(btn.dataset.id));
+    return;
+  }
+
+  if (action === 'regSavePreset') {
+    const id = document.getElementById('reg_preset_edit_id').value;
+    const name = document.getElementById('reg_preset_name').value;
+    const prog = document.getElementById('reg_preset_prog').value;
+    const year = document.getElementById('reg_preset_year').value;
+    const sem = document.getElementById('reg_preset_sem').value;
+
+    if (!name) return toast('Preset name is required.', 'error');
+
+    const payload = { name: name, program_id: Number(prog), year_level: Number(year), semester: sem };
+
+    try {
+      let presetId = id;
+      if (id) {
+        await supa('presets', { method: 'PATCH', match: { id: Number(id) }, body: payload });
+      } else {
+        const res = await supa('presets', { method: 'POST', body: payload });
+        presetId = res[0].id;
+      }
+
+      for (const delId of window.tempRegDeletedPSIds) {
+        await supa('preset_subjects', { method: 'DELETE', match: { id: delId } });
+      }
+      window.tempRegDeletedPSIds = [];
+
+      const existingSubs = await supa('preset_subjects', { match: { preset_id: presetId } });
+      for (const sub of window.tempRegPresetSubjects) {
+        if (sub.psId === 'NEW' && !existingSubs.some(es => String(es.course_id) === String(sub.id))) {
+          await supa('preset_subjects', { method: 'POST', body: { preset_id: presetId, course_id: sub.id } });
+        }
+      }
+
+      toast('Preset saved successfully.');
+      document.getElementById('regPresetModal')?.remove();
+      renderAll();
+    } catch (err) {
+      console.error(err);
+      toast('Failed to save preset.', 'error');
+    }
+    return;
+  }
+
+  if (action === 'regDeletePreset') {
+    const id = Number(btn.dataset.id);
+    if (!confirm('Delete this preset?')) return;
+    try {
+      await supa('presets', { method: 'DELETE', match: { id } });
+      toast('Preset deleted.');
+      renderAll();
+    } catch (err) { toast('Failed to delete.', 'error'); }
+    return;
+  }
+
+  if (action === 'regSaveEditedCourse') {
+    const id = Number(document.getElementById('reg_edit_course_id').value);
+    const code = document.getElementById('reg_edit_course_code').value;
+    const title = document.getElementById('reg_edit_course_title').value;
+    const units = Number(document.getElementById('reg_edit_course_units').value);
+    const day = document.getElementById('reg_edit_course_day').value;
+    const start = document.getElementById('reg_edit_course_start').value;
+    const end = document.getElementById('reg_edit_course_end').value;
+    const prog = Number(document.getElementById('reg_edit_course_prog').value);
+
+    if (!code || !title || !units || !day || !start || !end) {
+      return toast('Please fill out all fields.', 'error');
+    }
+
+    const payload = {
+      code: code,
+      title: title,
+      units: units,
+      schedule_day: day,
+      schedule_time: `${start} - ${end}`,
+      program_id: prog
+    };
+
+    try {
+      await supa('courses', { method: 'PATCH', match: { id: id }, body: payload });
+      toast('Subject updated successfully.');
+      document.getElementById('regEditCourseModal')?.remove();
+      renderAll();
+    } catch (err) {
+      console.error(err);
+      toast('Failed to update subject.', 'error');
+    }
+    return;
+  }
+
+  if (action === 'regDeleteCourse') {
+    const courseId = Number(btn.dataset.id);
+    if (!confirm('Are you sure you want to delete this subject from the curriculum?')) return;
+    try {
+      await supa('courses', { method: 'DELETE', match: { id: courseId } });
+      toast('Subject deleted.');
+      renderAll();
+    } catch (err) {
+      toast('Cannot delete subject. It might be tied to student records.', 'error');
+    }
+    return;
+  }
+
+  // ADMIN ACTIONS
+  if (action === 'adminOpenStudent') {
+    await adminOpenStudentModal(Number(btn.dataset.id)); return;
+  }
+
+  if (action === 'adminRemoveSubject') {
+    const subjectId = Number(btn.dataset.id);
+    const userId = Number(btn.dataset.user);
+    try {
+      await supa('student_subjects', { method: 'DELETE', match: { id: subjectId } });
+      toast('Subject record removed.');
+      await adminOpenStudentModal(userId); 
+    } catch (err) { toast('Failed to delete subject.', 'error'); }
+    return;
+  }
+
+  if (action === 'adminApproveEnrollment') {
+    const userId = Number(btn.dataset.id);
+    try {
+      await supa('applications', { method: 'PATCH', match: { user_id: userId }, body: { status: 'Approved' } });
+      toast('Student officially enrolled!');
+      renderAll();
+    } catch (err) { toast('Failed to approve.', 'error'); }
+    return;
+  }
+
+  // ACCOUNTING ACTIONS
+  if (action === 'accManageStudent') {
+    await accountingManageStudentModal(Number(btn.dataset.id));
+    return;
+  }
 });
 
 // --- GLOBAL CHANGE LISTENERS ---
@@ -486,7 +693,25 @@ document.addEventListener('submit', async (e) => {
   if (e.target.id === 'registerForm') { await doRegister(e.target, () => { window.currentView = 'dashboard'; renderAll(); }); return; }
 
   if (e.target.id === 'stepForm') {
-    // ... (Keep existing Step Form logic)
+    const step = Number(e.target.dataset.step);
+    const user = session;
+    const existing = await supa('applications', { match: { user_id: user.userId } });
+    let app = existing[0] || { personal: {}, education: {}, program: {}, documents: {}, doc_type: null, submitted: false };
+    const fd = new FormData(e.target);
+
+    if (step === 1) app.personal = { first_name: fd.get('first_name'), middle_name: fd.get('middle_name'), last_name: fd.get('last_name'), email: fd.get('email'), phone: fd.get('phone'), address: fd.get('address') };
+    else if (step === 2) app.education = { elem: { school: fd.get('elem_school'), year: fd.get('elem_year') }, jhs: { school: fd.get('jhs_school'), year: fd.get('jhs_year') }, shs: { school: fd.get('shs_school'), year: fd.get('shs_year') } };
+    else if (step === 3) app.program = { preferred: fd.get('preferred'), year_level: fd.get('year_level') };
+
+    await supa('applications', {
+      method: existing.length ? 'PATCH' : 'POST',
+      match: existing.length ? { user_id: user.userId } : undefined,
+      body: { user_id: user.userId, personal: app.personal, education: app.education, program: app.program, documents: app.documents || {}, doc_type: app.doc_type || null, submitted: false }
+    });
+
+    window.currentStep = step + 1;
+    renderAll();
+    return;
   }
 
   if (e.target.id === 'facultySearchForm') {
@@ -523,7 +748,87 @@ document.addEventListener('submit', async (e) => {
     return;
   }
 
-  // ... (Keep the rest of the REGISTRAR and ACCOUNTING forms exactly as they are in your current file) ...
+  // REGISTRAR FORMS
+  if (e.target.id === 'regCreateCourseForm') {
+    const fd = new FormData(e.target);
+    const start = fd.get('schedule_time_start');
+    const end = fd.get('schedule_time_end');
+    const timeStr = `${start} - ${end}`;
+
+    const payload = {
+      code: fd.get('code'),
+      title: fd.get('title'),
+      units: Number(fd.get('units')),
+      schedule_day: fd.get('schedule_day'),
+      schedule_time: timeStr,
+      program_id: Number(fd.get('program_id'))
+    };
+
+    try {
+      await supa('courses', { method: 'POST', body: payload });
+      toast('Subject created successfully.');
+      e.target.reset();
+      renderAll();
+    } catch (err) {
+      toast('Failed to create subject. Check if code already exists.', 'error');
+    }
+    return;
+  }
+
+  // ACCOUNTING FORMS
+  if (e.target.id === 'accountingSettingsForm') {
+    const fd = new FormData(e.target);
+    try {
+      await supa('system_settings', {
+        method: 'PATCH',
+        match: { id: 1 },
+        body: {
+          tuition_per_unit: Number(fd.get('tuition_per_unit')),
+          misc_fee: Number(fd.get('misc_fee')),
+          reg_fee: Number(fd.get('reg_fee'))
+        }
+      });
+      toast('Settings updated successfully.');
+    } catch (err) {
+      toast('Failed to update settings.', 'error');
+    }
+    return;
+  }
+
+  if (e.target.id === 'inPersonPaymentForm') {
+    const fd = new FormData(e.target);
+    const userId = Number(fd.get('user_id'));
+    const amount = Number(fd.get('amount'));
+    const currentPaid = Number(fd.get('current_paid'));
+    
+    if (amount <= 0) return toast('Amount must be greater than 0', 'error');
+
+    try {
+      const newPaid = currentPaid + amount;
+      const refNo = 'PAY-ACC-' + Date.now().toString().slice(-6);
+
+      await supa('applications', { method: 'PATCH', match: { user_id: userId }, body: { amount_paid: newPaid } });
+      
+      await supa('payment_logs', {
+        method: 'POST',
+        body: {
+          user_id: userId,
+          amount: amount,
+          reference_no: refNo,
+          payment_type: fd.get('payment_type'),
+          processed_by: 'Accounting'
+        }
+      });
+
+      toast('In-person payment recorded.');
+      document.getElementById('accStudentModal')?.remove();
+      renderAll();
+    } catch (err) {
+      console.error(err);
+      toast('Failed to record payment.', 'error');
+    }
+    return;
+  }
 });
 
 window.logout = () => { doLogout(() => renderAll()); };
