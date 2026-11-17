@@ -41,9 +41,10 @@ export async function renderAll() {
 
   const hasSubjects = subjects.length > 0;
   const hasPaid = Number(app.amount_paid || 0) > 0;
+  const isReturned = !!app.returned;
 
   let navItems = [];
-  if (!hasSubjects) {
+  if (!hasSubjects || isReturned) {
     navItems = [
       { id: 'dashboard', label: 'Dashboard' },
       { id: 'apply', label: 'Application' }
@@ -186,7 +187,6 @@ async function renderFacultyLayout() {
   const content = $('#facultyContent');
   const view = window.currentView || 'dashboard';
 
-  // Note: renderFacultyProgress will filter out students who haven't been verified by registrar
   if (view === 'dashboard') content.innerHTML = await renderFacultyDashboard();
   else if (view === 'progress') content.innerHTML = await renderFacultyProgress();
 }
@@ -390,7 +390,6 @@ document.addEventListener('click', async (e) => {
     const app = apps[0];
     const docType = app.doc_type;
     
-    // Quick check (This should ideally be in renderStepDocuments to prevent clicking Next)
     if (docType === 'freshman') {
       const required = ['form138', 'psa', 'idpic', 'goodmoral', 'exam'];
       const missing = required.filter(id => !app.documents || !app.documents[id]);
@@ -405,7 +404,7 @@ document.addEventListener('click', async (e) => {
        if (missing.length > 0) return toast('Please upload all required documents.', 'error');
     }
 
-    await supa('applications', { method: 'PATCH', match: { user_id: session.userId }, body: { submitted: true, reference: 'UCC-' + Date.now().toString().slice(-8), status: 'Pending Review' } });
+    await supa('applications', { method: 'PATCH', match: { user_id: session.userId }, body: { submitted: true, returned: false, reference: 'UCC-' + Date.now().toString().slice(-8), status: 'Pending Review' } });
     toast('Application submitted successfully!');
     window.currentView = 'dashboard'; renderAll(); return;
   }
@@ -438,153 +437,7 @@ document.addEventListener('click', async (e) => {
     return;
   }
 
-  if (action === 'regCreatePreset') {
-    await regEditPresetModal(null);
-    return;
-  }
-
-  if (action === 'regEditPreset') {
-    await regEditPresetModal(Number(btn.dataset.id));
-    return;
-  }
-
-  if (action === 'regEditCourse') {
-    await regEditCourseModal(Number(btn.dataset.id));
-    return;
-  }
-
-  if (action === 'regSavePreset') {
-    const id = document.getElementById('reg_preset_edit_id').value;
-    const name = document.getElementById('reg_preset_name').value;
-    const prog = document.getElementById('reg_preset_prog').value;
-    const year = document.getElementById('reg_preset_year').value;
-    const sem = document.getElementById('reg_preset_sem').value;
-
-    if (!name) return toast('Preset name is required.', 'error');
-
-    const payload = { name: name, program_id: Number(prog), year_level: Number(year), semester: sem };
-
-    try {
-      let presetId = id;
-      if (id) {
-        await supa('presets', { method: 'PATCH', match: { id: Number(id) }, body: payload });
-      } else {
-        const res = await supa('presets', { method: 'POST', body: payload });
-        presetId = res[0].id;
-      }
-
-      for (const delId of window.tempRegDeletedPSIds) {
-        await supa('preset_subjects', { method: 'DELETE', match: { id: delId } });
-      }
-      window.tempRegDeletedPSIds = [];
-
-      const existingSubs = await supa('preset_subjects', { match: { preset_id: presetId } });
-      for (const sub of window.tempRegPresetSubjects) {
-        if (sub.psId === 'NEW' && !existingSubs.some(es => String(es.course_id) === String(sub.id))) {
-          await supa('preset_subjects', { method: 'POST', body: { preset_id: presetId, course_id: sub.id } });
-        }
-      }
-
-      toast('Preset saved successfully.');
-      document.getElementById('regPresetModal')?.remove();
-      renderAll();
-    } catch (err) {
-      console.error(err);
-      toast('Failed to save preset.', 'error');
-    }
-    return;
-  }
-
-  if (action === 'regDeletePreset') {
-    const id = Number(btn.dataset.id);
-    if (!confirm('Delete this preset?')) return;
-    try {
-      await supa('presets', { method: 'DELETE', match: { id } });
-      toast('Preset deleted.');
-      renderAll();
-    } catch (err) { toast('Failed to delete.', 'error'); }
-    return;
-  }
-
-  if (action === 'regSaveEditedCourse') {
-    const id = Number(document.getElementById('reg_edit_course_id').value);
-    const code = document.getElementById('reg_edit_course_code').value;
-    const title = document.getElementById('reg_edit_course_title').value;
-    const units = Number(document.getElementById('reg_edit_course_units').value);
-    const day = document.getElementById('reg_edit_course_day').value;
-    const start = document.getElementById('reg_edit_course_start').value;
-    const end = document.getElementById('reg_edit_course_end').value;
-    const prog = Number(document.getElementById('reg_edit_course_prog').value);
-
-    if (!code || !title || !units || !day || !start || !end) {
-      return toast('Please fill out all fields.', 'error');
-    }
-
-    const payload = {
-      code: code,
-      title: title,
-      units: units,
-      schedule_day: day,
-      schedule_time: `${start} - ${end}`,
-      program_id: prog
-    };
-
-    try {
-      await supa('courses', { method: 'PATCH', match: { id: id }, body: payload });
-      toast('Subject updated successfully.');
-      document.getElementById('regEditCourseModal')?.remove();
-      renderAll();
-    } catch (err) {
-      console.error(err);
-      toast('Failed to update subject.', 'error');
-    }
-    return;
-  }
-
-  if (action === 'regDeleteCourse') {
-    const courseId = Number(btn.dataset.id);
-    if (!confirm('Are you sure you want to delete this subject from the curriculum?')) return;
-    try {
-      await supa('courses', { method: 'DELETE', match: { id: courseId } });
-      toast('Subject deleted.');
-      renderAll();
-    } catch (err) {
-      toast('Cannot delete subject. It might be tied to student records.', 'error');
-    }
-    return;
-  }
-
-  // ADMIN ACTIONS
-  if (action === 'adminOpenStudent') {
-    await adminOpenStudentModal(Number(btn.dataset.id)); return;
-  }
-
-  if (action === 'adminRemoveSubject') {
-    const subjectId = Number(btn.dataset.id);
-    const userId = Number(btn.dataset.user);
-    try {
-      await supa('student_subjects', { method: 'DELETE', match: { id: subjectId } });
-      toast('Subject record removed.');
-      await adminOpenStudentModal(userId); 
-    } catch (err) { toast('Failed to delete subject.', 'error'); }
-    return;
-  }
-
-  if (action === 'adminApproveEnrollment') {
-    const userId = Number(btn.dataset.id);
-    try {
-      await supa('applications', { method: 'PATCH', match: { user_id: userId }, body: { status: 'Approved' } });
-      toast('Student officially enrolled!');
-      renderAll();
-    } catch (err) { toast('Failed to approve.', 'error'); }
-    return;
-  }
-
-  // ACCOUNTING ACTIONS
-  if (action === 'accManageStudent') {
-    await accountingManageStudentModal(Number(btn.dataset.id));
-    return;
-  }
+  // ... (Keep the rest of the REGISTRAR, ADMIN, and ACCOUNTING actions exactly as they are in your current file) ...
 });
 
 // --- GLOBAL CHANGE LISTENERS ---
@@ -633,25 +486,7 @@ document.addEventListener('submit', async (e) => {
   if (e.target.id === 'registerForm') { await doRegister(e.target, () => { window.currentView = 'dashboard'; renderAll(); }); return; }
 
   if (e.target.id === 'stepForm') {
-    const step = Number(e.target.dataset.step);
-    const user = session;
-    const existing = await supa('applications', { match: { user_id: user.userId } });
-    let app = existing[0] || { personal: {}, education: {}, program: {}, documents: {}, doc_type: null, submitted: false };
-    const fd = new FormData(e.target);
-
-    if (step === 1) app.personal = { first_name: fd.get('first_name'), middle_name: fd.get('middle_name'), last_name: fd.get('last_name'), email: fd.get('email'), phone: fd.get('phone'), address: fd.get('address') };
-    else if (step === 2) app.education = { elem: { school: fd.get('elem_school'), year: fd.get('elem_year') }, jhs: { school: fd.get('jhs_school'), year: fd.get('jhs_year') }, shs: { school: fd.get('shs_school'), year: fd.get('shs_year') } };
-    else if (step === 3) app.program = { preferred: fd.get('preferred'), year_level: fd.get('year_level') };
-
-    await supa('applications', {
-      method: existing.length ? 'PATCH' : 'POST',
-      match: existing.length ? { user_id: user.userId } : undefined,
-      body: { user_id: user.userId, personal: app.personal, education: app.education, program: app.program, documents: app.documents || {}, doc_type: app.doc_type || null, submitted: false }
-    });
-
-    window.currentStep = step + 1;
-    renderAll();
-    return;
+    // ... (Keep existing Step Form logic)
   }
 
   if (e.target.id === 'facultySearchForm') {
@@ -668,35 +503,27 @@ document.addEventListener('submit', async (e) => {
     return;
   }
 
-  // REGISTRAR FORMS
-  if (e.target.id === 'regCreateCourseForm') {
+  if (e.target.id === 'regReturnForm') {
     const fd = new FormData(e.target);
-    const start = fd.get('schedule_time_start');
-    const end = fd.get('schedule_time_end');
-    const timeStr = `${start} - ${end}`;
-
-    const payload = {
-      code: fd.get('code'),
-      title: fd.get('title'),
-      units: Number(fd.get('units')),
-      schedule_day: fd.get('schedule_day'),
-      schedule_time: timeStr,
-      program_id: Number(fd.get('program_id'))
-    };
-
+    const userId = Number(fd.get('user_id'));
+    const feedback = fd.get('feedback');
+    
     try {
-      await supa('courses', { method: 'POST', body: payload });
-      toast('Subject created successfully.');
-      e.target.reset();
+      await supa('applications', { 
+        method: 'PATCH', 
+        match: { user_id: userId }, 
+        body: { returned: true, submitted: false, registrar_feedback: feedback } 
+      });
+      toast('Application returned to student.');
+      document.getElementById('regStudentModal')?.remove();
       renderAll();
     } catch (err) {
-      toast('Failed to create subject. Check if code already exists.', 'error');
+      toast('Failed to return application.', 'error');
     }
     return;
   }
 
-  // ACCOUNTING FORMS
-  // Keep existing Accounting Forms ...
+  // ... (Keep the rest of the REGISTRAR and ACCOUNTING forms exactly as they are in your current file) ...
 });
 
 window.logout = () => { doLogout(() => renderAll()); };
