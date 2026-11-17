@@ -5,7 +5,7 @@ import { renderStudentDashboard, renderApply, renderPaymentTab, renderScheduleTa
 import { renderAdminDashboard, renderAdminStudents, renderAdminCourses, renderAdminEnrollments, adminOpenStudentModal } from './admin.js';
 import { renderFacultyDashboard, renderFacultyProgress } from './faculty.js'; 
 import { renderAccountingDashboard, renderAccountingLogs, renderAccountingSettings, renderAccountingStudents, accountingManageStudentModal } from './accounting.js';
-import { renderRegistrarDashboard, renderRegistrarPresets, renderRegistrarCourses, renderRegistrarStudents, regManageStudentModal } from './registrar.js';
+import { renderRegistrarDashboard, renderRegistrarPresets, renderRegistrarCourses, renderRegistrarStudents, regManageStudentModal, regEditPresetModal, regEditCourseModal } from './registrar.js';
 
 loadSession();
 
@@ -832,6 +832,9 @@ document.addEventListener('submit', async (e) => {
 });
 
 window.logout = () => { doLogout(() => renderAll()); };
+
+// CRITICAL FIX: Expose renderAll globally so student.js can refresh the UI
+window.renderAll = renderAll;
 
 window.currentView = 'dashboard';
 window.currentStep = 1;
