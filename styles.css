@@ -14,7 +14,8 @@ html, body {
   margin: 0;
   padding: 0;
   overflow-x: hidden; 
-  background-color: var(--mint-50);
+  /* Portal canvas: a step deeper than the white cards so panels stand out */
+  background-color: var(--mint-100);
   font-family: var(--sans); 
   color: var(--ink); 
   -webkit-font-smoothing: antialiased; 
@@ -171,7 +172,7 @@ a { color: var(--mint-600); text-decoration: none; }
   width: 100% !important;
   padding: 0 !important;
   margin: 0 !important;
-  background: var(--mint-50);
+  background: var(--mint-100);
 }
 
 .role-shell { 
@@ -214,7 +215,7 @@ a { color: var(--mint-600); text-decoration: none; }
 .role-main { 
   display: flex; 
   flex-direction: column; 
-  background: var(--mint-50); 
+  background: var(--mint-100); 
   width: 100%; 
   overflow-y: auto;
   height: 100vh;
