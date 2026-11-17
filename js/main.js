@@ -32,6 +32,7 @@ export async function renderAll() {
   if (session.role === 'registrar') { renderRegistrarLayout(); return; }
 
   // --- STUDENT ROUTING & DYNAMIC NAVBAR ---
+  pageWrap.className = 'page-wrap'; // Resets layout to student style
   const apps = await supa('applications', { match: { user_id: session.userId } }).catch(() => []);
   const app = apps[0] || {};
   const subjects = await supa('student_subjects', { match: { user_id: session.userId } }).catch(() => []);
@@ -154,10 +155,12 @@ function renderAuthPage() {
 // --- ADMIN LAYOUT ---
 async function renderAdminLayout() {
   const pageWrap = $('#pageWrap');
+  pageWrap.className = 'role-page-wrap'; // Enforces full flush width
   $('#navbar').classList.add('hidden');
+  pageWrap.classList.remove('hidden');
   
   pageWrap.innerHTML = `
-    <div class="role-shell" style="min-height: 100vh;">
+    <div class="role-shell">
       <aside class="role-sidebar">
         <div class="role-side-brand"><strong>Admin Portal</strong><span>Registrar</span></div>
         <nav class="role-nav">
@@ -192,10 +195,12 @@ window.setAdminView = (view) => { window.currentView = view; renderAll(); };
 // --- FACULTY LAYOUT ---
 async function renderFacultyLayout() {
   const pageWrap = $('#pageWrap');
+  pageWrap.className = 'role-page-wrap'; // Enforces full flush width
   $('#navbar').classList.add('hidden');
+  pageWrap.classList.remove('hidden');
   
   pageWrap.innerHTML = `
-    <div class="role-shell" style="min-height: 100vh;">
+    <div class="role-shell">
       <aside class="role-sidebar">
         <div class="role-side-brand"><strong>Faculty Portal</strong><span>College Department</span></div>
         <nav class="role-nav">
@@ -237,10 +242,12 @@ window.closeFacultyStudent = () => {
 // --- ACCOUNTING LAYOUT ---
 async function renderAccountingLayout() {
   const pageWrap = $('#pageWrap');
+  pageWrap.className = 'role-page-wrap'; // Enforces full flush width
   $('#navbar').classList.add('hidden');
+  pageWrap.classList.remove('hidden');
   
   pageWrap.innerHTML = `
-    <div class="role-shell" style="min-height: 100vh;">
+    <div class="role-shell">
       <aside class="role-sidebar">
         <div class="role-side-brand"><strong>Accounting Dept</strong><span>Finance</span></div>
         <nav class="role-nav">
@@ -275,10 +282,12 @@ window.setAccountingView = (view) => { window.currentView = view; renderAll(); }
 // --- REGISTRAR LAYOUT ---
 async function renderRegistrarLayout() {
   const pageWrap = $('#pageWrap');
+  pageWrap.className = 'role-page-wrap'; // Enforces full flush width
   $('#navbar').classList.add('hidden');
+  pageWrap.classList.remove('hidden');
   
   pageWrap.innerHTML = `
-    <div class="role-shell" style="min-height: 100vh;">
+    <div class="role-shell">
       <aside class="role-sidebar">
         <div class="role-side-brand"><strong>Registrar Portal</strong><span>Records & Curriculum</span></div>
         <nav class="role-nav">
@@ -833,7 +842,7 @@ document.addEventListener('submit', async (e) => {
 
 window.logout = () => { doLogout(() => renderAll()); };
 
-// CRITICAL FIX: Expose renderAll globally so student.js can refresh the UI
+// Expose renderAll globally
 window.renderAll = renderAll;
 
 window.currentView = 'dashboard';
