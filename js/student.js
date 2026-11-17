@@ -668,4 +668,45 @@ export async function renderRegistrationTab(app, subjects, courses, settings) {
             <td style="border:1px solid #000; padding:4px; text-align:right;">${misc.toLocaleString('en-PH', {minimumFractionDigits:2})}</td>
           </tr>
           <tr>
-            <
+            <td style="border:1px solid #000; padding:4px; font-weight:bold;" colspan="4">TOTAL</td>
+            <td style="border:1px solid #000; padding:4px; text-align:right; font-weight:bold;">${total.toLocaleString('en-PH', {minimumFractionDigits:2})}</td>
+          </tr>
+          <tr>
+            <td style="border:1px solid #000; padding:4px; font-weight:bold; color:green;" colspan="4">AMOUNT PAID</td>
+            <td style="border:1px solid #000; padding:4px; text-align:right; font-weight:bold; color:green;">${paid.toLocaleString('en-PH', {minimumFractionDigits:2})}</td>
+          </tr>
+          <tr>
+            <td style="border:1px solid #000; padding:4px; font-weight:bold; color:red;" colspan="4">REMAINING BALANCE</td>
+            <td style="border:1px solid #000; padding:4px; text-align:right; font-weight:bold; color:red;">${(total - paid).toLocaleString('en-PH', {minimumFractionDigits:2})}</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <!-- STAMP -->
+      <div style="display:flex; justify-content:center; margin:30px 0;">
+        <div style="border: 3px solid #2e7d32; color: #2e7d32; padding: 10px 30px; border-radius: 8px; text-align:center; transform: rotate(-5deg);">
+          <p style="font-size:12px; font-weight:bold; margin-bottom:5px;">UCC ADMISSIONS OFFICE</p>
+          <p style="font-size:28px; font-weight:900; letter-spacing:2px;">ENROLLED</p>
+          <p style="font-size:12px;">Date: ${new Date().toLocaleDateString()}</p>
+        </div>
+      </div>
+
+      <!-- SIGNATURES -->
+      <div style="display:flex; justify-content:space-between; font-size:11px; margin-top:40px;">
+        <div style="text-align:center;">
+          <p>Checked by:</p>
+          <div style="border-bottom:1px solid #000; width:150px; margin:20px auto 5px;"></div>
+          <p>Ms. Analee I. Ramos</p>
+          <p style="font-weight:bold;">Registrar Head</p>
+        </div>
+        <div style="text-align:center;">
+          <p>Approved by:</p>
+          <div style="border-bottom:1px solid #000; width:150px; margin:20px auto 5px;"></div>
+          <p>Dr. Ruthmita Rozul</p>
+          <p style="font-weight:bold;">College Director</p>
+        </div>
+      </div>
+
+    </div>
+  `;
+}
