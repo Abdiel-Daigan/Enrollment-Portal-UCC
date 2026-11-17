@@ -83,15 +83,41 @@ a { color: var(--mint-600); text-decoration: none; }
 /* =========================================================
    AUTH PAGE
    ========================================================= */
-.auth-wrap { min-height: 100vh; display: grid; place-items: center; padding: 24px; background: radial-gradient(1100px 600px at 8% -10%, #1f9673 0%, transparent 58%), linear-gradient(140deg, #0d3f31, #135c48 55%, #18775c); }
-.auth-card { width: min(1000px, 100%); display: grid; grid-template-columns: 1fr 1fr; background: #fff; border-radius: 22px; overflow: hidden; box-shadow: 0 26px 60px rgba(0, 0, 0, .28); }
-.auth-brand { background: linear-gradient(165deg, var(--mint-700), var(--mint-500) 70%, var(--mint-400)); color: #fff; padding: 44px 38px; display: flex; flex-direction: column; justify-content: center; gap: 16px; }
-.auth-brand h1 { font-size: 28px; line-height: 1.2; font-weight: 800; }
-.auth-brand p { color: #d6f5e8; font-size: 15px; }
-.auth-form { padding: 38px 34px; display: flex; flex-direction: column; justify-content: center; }
-.auth-tabs { display: flex; background: var(--mint-100); border-radius: 12px; padding: 5px; margin-bottom: 24px; }
+.auth-wrap { min-height: 100vh; display: grid; place-items: center; padding: 28px; background: radial-gradient(900px 520px at 12% -10%, rgba(47,185,140,.55) 0%, transparent 60%), radial-gradient(760px 480px at 92% 110%, rgba(212,175,55,.20) 0%, transparent 62%), linear-gradient(140deg, #0d3f31, #135c48 55%, #18775c); }
+.auth-card { width: min(1120px, 100%); display: grid; grid-template-columns: 1.05fr 1fr; background: #fff; border-radius: 22px; overflow: hidden; box-shadow: 0 26px 60px rgba(0, 0, 0, .28); }
+
+/* Photo panel — falls back to a mint gradient if the photo is missing */
+.auth-brand {
+  color: #fff;
+  padding: 34px 36px 30px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 22px;
+  min-height: 560px;
+  background:
+    linear-gradient(180deg, rgba(13,63,49,.58) 0%, rgba(13,63,49,.76) 52%, rgba(13,63,49,.94) 100%),
+    url("assets/img/login-students.jpg") center/cover no-repeat,
+    linear-gradient(165deg, var(--mint-700), var(--mint-500) 70%, var(--mint-400));
+}
+.auth-brand .brand-mark { width: 54px; height: 54px; border-radius: 50%; display: grid; place-items: center; font-family: var(--serif); font-size: 16px; font-weight: 700; letter-spacing: 1px; color: var(--gold-300); border: 2px solid rgba(212,175,55,.75); background: rgba(0,0,0,.22); flex-shrink: 0; }
+.auth-brand .brand-eyebrow { font-family: var(--serif); font-size: 11.5px; letter-spacing: 2.4px; text-transform: uppercase; color: var(--gold-300); font-weight: 700; margin-bottom: 8px; }
+.auth-brand h1 { font-size: 30px; line-height: 1.15; font-weight: 800; margin-bottom: 10px; }
+.auth-brand .brand-tagline { color: #ddf3ea; font-size: 14.5px; line-height: 1.55; max-width: 40ch; margin-bottom: 18px; }
+.auth-features { list-style: none; display: grid; gap: 9px; padding: 0; margin: 0 0 4px; }
+.auth-features li { display: flex; gap: 9px; font-size: 12.8px; line-height: 1.45; color: #e8f8f1; }
+.auth-features li::before { content: "\2713"; color: var(--gold-300); font-weight: 800; flex-shrink: 0; }
+.auth-brand .brand-credit { font-size: 11px; letter-spacing: .5px; color: rgba(255,255,255,.65); border-top: 1px solid rgba(255,255,255,.18); padding-top: 14px; }
+
+/* Form panel */
+.auth-form { padding: 44px 40px; display: flex; flex-direction: column; justify-content: center; gap: 18px; background: #fff; }
+.auth-form-head h2 { font-family: var(--serif); font-size: 24px; font-weight: 700; color: var(--mint-800); margin-bottom: 4px; }
+.auth-form-head p { font-size: 13.5px; color: var(--muted); }
+.auth-tabs { display: flex; background: var(--mint-100); border-radius: 12px; padding: 5px; }
 .auth-tab { flex: 1; padding: 10px; border-radius: 9px; font-weight: 600; font-size: 14px; color: var(--mint-700); transition: .18s; }
 .auth-tab.active { background: #fff; color: var(--mint-800); box-shadow: 0 3px 10px rgba(16,66,52,.12); }
+.auth-note { font-size: 12px; color: var(--muted); text-align: center; margin-top: 2px; }
+.auth-note strong { color: var(--mint-700); }
 
 /* =========================================================
    STUDENT DASHBOARD & WIZARD
@@ -102,7 +128,8 @@ a { color: var(--mint-600); text-decoration: none; }
 .college-banner .banner-text h2 { font-family: var(--serif); font-size: 32px; letter-spacing: 2px; text-transform: uppercase; font-weight: 700; line-height: 1.1; margin-bottom: 10px; }
 .college-banner .banner-text .banner-sub { font-family: var(--serif); font-size: 19px; letter-spacing: 2px; color: var(--gold-400); text-transform: uppercase; font-weight: 700; margin-bottom: 14px; }
 .college-banner .banner-text p { font-size: 15.5px; color: #d6e8de; font-family: var(--serif); font-style: italic; }
-.college-banner .banner-img { background: linear-gradient(135deg, rgba(47,185,140,.5), rgba(13,63,49,.7)), linear-gradient(135deg, #2fb98c, #0d3f31); }
+/* Photo fills the banner; the trailing gradient is the fallback if it is missing */
+.college-banner .banner-img { background: linear-gradient(120deg, rgba(13,63,49,.45), rgba(47,185,140,.12)), url("assets/img/student-life.jpg") center/cover no-repeat, linear-gradient(135deg, rgba(47,185,140,.9), rgba(13,63,49,.95)); }
 
 .progress-card { background: #fff; border-radius: 16px; padding: 30px 36px; box-shadow: var(--shadow); margin-bottom: 26px; }
 .progress-card h3 { font-size: 21px; font-weight: 700; margin-bottom: 26px; }
@@ -444,6 +471,10 @@ a { color: var(--mint-600); text-decoration: none; }
 /* Responsive */
 @media (max-width: 900px) {
   .auth-card { grid-template-columns: 1fr; }
+  .auth-brand { min-height: 0; padding: 26px 24px; gap: 16px; }
+  .auth-brand h1 { font-size: 24px; }
+  .auth-brand .brand-tagline { margin-bottom: 12px; }
+  .auth-form { padding: 30px 24px; }
   .navbar { padding: 12px 16px; height: auto; flex-wrap: wrap; }
   .nav-links { order: 3; width: 100%; overflow-x: auto; justify-content: flex-start; margin-top: 10px; }
   .college-banner { grid-template-columns: 1fr; }

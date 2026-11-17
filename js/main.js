@@ -130,23 +130,46 @@ window.payTuition = async (type, total, currentPaid) => {
 function renderAuthPage() {
   $('#authPage').innerHTML = `
     <div class="auth-card">
-      <div class="auth-brand"><h1>Unida Christian Colleges</h1><p>Enrollment Portal</p></div>
+      <aside class="auth-brand">
+        <div class="brand-mark">UCC</div>
+        <div class="brand-body">
+          <div class="brand-eyebrow">Unida Christian Colleges</div>
+          <h1>Enrollment Portal</h1>
+          <p class="brand-tagline">Everything you need to enroll — application, requirements, assessment and receipts in one place.</p>
+          <ul class="auth-features">
+            <li>Submit your application and upload requirements online</li>
+            <li>See your schedule and registration form once assessed</li>
+            <li>Keep every payment receipt for your records</li>
+          </ul>
+        </div>
+        <div class="brand-credit">Unida Christian Colleges · Admissions &amp; Guidance Office</div>
+      </aside>
+
       <div class="auth-form">
+        <div class="auth-form-head">
+          <h2>Welcome back</h2>
+          <p>Sign in with your school account to continue.</p>
+        </div>
+
         <div class="auth-tabs">
           <button class="auth-tab active" data-action="authTab" data-tab="login">Sign In</button>
           <button class="auth-tab" data-action="authTab" data-tab="register">Register</button>
         </div>
+
         <form id="loginForm">
-          <div class="field"><label>Email</label><input type="email" name="email" required></div>
-          <div class="field"><label>Password</label><input type="password" name="password" required></div>
+          <div class="field"><label>Email</label><input type="email" name="email" autocomplete="email" placeholder="you@unida.edu.ph" required></div>
+          <div class="field"><label>Password</label><input type="password" name="password" autocomplete="current-password" placeholder="Enter your password" required></div>
           <button class="btn btn-primary btn-block" type="submit">Sign In</button>
         </form>
+
         <form id="registerForm" class="hidden">
-          <div class="field"><label>Name</label><input type="text" name="name" required></div>
-          <div class="field"><label>Email</label><input type="email" name="email" required></div>
-          <div class="field"><label>Password</label><input type="password" name="password" required></div>
+          <div class="field"><label>Full Name</label><input type="text" name="name" autocomplete="name" placeholder="Juan Dela Cruz" required></div>
+          <div class="field"><label>Email</label><input type="email" name="email" autocomplete="email" placeholder="you@email.com" required></div>
+          <div class="field"><label>Password</label><input type="password" name="password" autocomplete="new-password" placeholder="At least 6 characters" required></div>
           <button class="btn btn-primary btn-block" type="submit">Create Account</button>
         </form>
+
+        <p class="auth-note">New students can create an account with the <strong>Register</strong> tab.</p>
       </div>
     </div>
   `;
