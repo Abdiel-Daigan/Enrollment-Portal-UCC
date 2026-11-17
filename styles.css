@@ -96,7 +96,7 @@ a { color: var(--mint-600); text-decoration: none; }
   gap: 22px;
   min-height: 560px;
   background:
-    linear-gradient(180deg, rgba(13,63,49,.58) 0%, rgba(13,63,49,.76) 52%, rgba(13,63,49,.94) 100%),
+    linear-gradient(180deg, rgba(13,63,49,.42) 0%, rgba(13,63,49,.72) 50%, rgba(13,63,49,.94) 100%),
     url("assets/img/login-students.jpg") center/cover no-repeat,
     linear-gradient(165deg, var(--mint-700), var(--mint-500) 70%, var(--mint-400));
 }
