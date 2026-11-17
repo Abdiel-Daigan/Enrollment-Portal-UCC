@@ -74,7 +74,7 @@ export async function renderStudentDashboard() {
           </div>
           <div class="rp-notice info" style="margin-bottom:0; width: 100%;">
             <span>ℹ️</span>
-            <span>Please wait for the Faculty to assign your subjects. Once assigned, your Payment tab will appear.</span>
+            <span>Please wait for the Registrar to verify your documents. Once verified, the Faculty will assign your subjects.</span>
           </div>
         </div>
       ` : `
@@ -100,7 +100,7 @@ export async function renderApply() {
 
   let html = '';
   if (app.submitted) {
-    html = `<div class="success-wrap"><div class="success-check">✓</div><h2>Application Submitted!</h2><p>Wait for the Faculty to assign your subjects.</p></div>`;
+    html = `<div class="success-wrap"><div class="success-check">✓</div><h2>Application Submitted!</h2><p>Wait for the Registrar to verify your documents.</p></div>`;
   } else {
     switch(step) {
       case 1: html = renderStepPersonal(app); break;
@@ -224,28 +224,79 @@ function renderStepProgram(app) {
   `;
 }
 
+// --- NEW DOCUMENT UPLOAD LOGIC ---
+const DOC_TYPES = {
+  freshman: [
+    { id: 'form138', name: 'Form 138', required: true },
+    { id: 'psa', name: 'PSA Birth Certificate', required: true },
+    { id: 'idpic', name: 'ID Photo', required: true },
+    { id: 'goodmoral', name: 'Good Moral Certificate', required: true },
+    { id: 'exam', name: 'Entrance Exam Result', required: true }
+  ],
+  transferee: [
+    { id: 'transfer_cred', name: 'Transfer Credentials / Honorable Dismissal', required: true },
+    { id: 'tor', name: 'Transcript of Records', required: true },
+    { id: 'goodmoral_prev', name: 'Good Moral Certificate (Previous School)', required: true },
+    { id: 'psa', name: 'PSA Birth Certificate', required: true },
+    { id: 'idpic', name: 'ID Photo', required: true }
+  ],
+  returnee: [
+    { id: 'readmission', name: 'Readmission Form', required: true },
+    { id: 'clearance', name: 'Clearance from Last Term', required: true },
+    { id: 'approval', name: 'School Approval Document', required: false }
+  ]
+};
+
 function renderStepDocuments(app) {
   if (!app.doc_type) {
     return `
-      <h2>Upload Documents</h2>
-      <div class="doc-choices">
-        <div class="doc-choice featured" data-action="chooseDocType" data-type="new">
-          <h3>New Student</h3>
-          <button class="btn btn-primary">Continue →</button>
+      <h2>Select Student Type</h2>
+      <p class="subtitle">Please choose your student status to see the required documents.</p>
+      <div class="doc-choices" style="grid-template-columns: 1fr 1fr 1fr;">
+        <div class="doc-choice featured" data-action="chooseDocType" data-type="freshman">
+          <h3>Freshman</h3>
+          <p>New incoming 1st-year students.</p>
+          <button class="btn btn-primary">Select</button>
         </div>
         <div class="doc-choice" data-action="chooseDocType" data-type="transferee">
           <h3>Transferee</h3>
-          <button class="btn btn-outline">Continue →</button>
+          <p>Students transferring from another school.</p>
+          <button class="btn btn-outline">Select</button>
+        </div>
+        <div class="doc-choice" data-action="chooseDocType" data-type="returnee">
+          <h3>Returnee</h3>
+          <p>Students returning after a leave of absence.</p>
+          <button class="btn btn-outline">Select</button>
         </div>
       </div>
     `;
   }
+
+  const docs = DOC_TYPES[app.doc_type] || [];
+  const uploaded = app.documents || {};
+
   return `
-    <h2>Upload Documents (${app.doc_type === 'new' ? 'New Student' : 'Transferee'})</h2>
+    <h2>Upload Documents (${app.doc_type.charAt(0).toUpperCase() + app.doc_type.slice(1)})</h2>
+    <p class="subtitle">Please upload all required documents to proceed.</p>
+    
     <form id="stepForm" class="apply-form-body" data-step="4">
-      <div class="upload-row"><div><h4>Report Card / TOR</h4></div><input type="file" data-upload="tor"></div>
-      <div class="upload-row"><div><h4>PSA Birth Certificate</h4></div><input type="file" data-upload="psa"></div>
-      <div class="upload-row"><div><h4>Good Moral</h4></div><input type="file" data-upload="moral"></div>
+      ${docs.map(d => {
+        const isUploaded = uploaded[d.id];
+        return `
+          <div class="upload-row" style="border-color: ${d.required && !isUploaded ? 'var(--danger)' : 'var(--line)'}">
+            <div class="ur-text">
+              <h4>${esc(d.name)} ${d.required ? '<span style="color:var(--danger)">*</span>' : '<span class="rp-hint">(Follow-up)</span>'}</h4>
+              <p>${isUploaded ? `<span style="color:var(--mint-600)">✓ ${esc(uploaded[d.id])}</span>` : 'No file uploaded'}</p>
+            </div>
+            <div class="ur-input">
+              <label class="file-btn">
+                ⬆ Choose File
+                <input type="file" accept=".pdf,.jpg,.jpeg,.png" onchange="window.handleFileUpload(event, '${d.id}', '${d.name}')">
+              </label>
+            </div>
+          </div>
+        `;
+      }).join('')}
     </form>
     <div class="apply-footer">
       <button type="button" class="btn btn-outline" data-action="changeDocType">← Back</button>
@@ -253,6 +304,29 @@ function renderStepDocuments(app) {
     </div>
   `;
 }
+
+// Helper function for uploads (simulated)
+window.handleFileUpload = async (event, docId, docName) => {
+  const file = event.target.files[0];
+  if (!file) return;
+  if (file.size > 5 * 1024 * 1024) return toast('File is too large (max 5MB).', 'error');
+
+  const user = session;
+  const existing = await supa('applications', { match: { user_id: user.userId } });
+  const app = existing[0] || {};
+  const docs = app.documents || {};
+  
+  docs[docId] = file.name; // Simulate saving the filename
+
+  await supa('applications', {
+    method: 'PATCH',
+    match: { user_id: user.userId },
+    body: { documents: docs }
+  });
+
+  toast(`${docName} uploaded.`);
+  renderAll();
+};
 
 function renderStepReview(app) {
   return `
@@ -272,7 +346,44 @@ function renderStepReview(app) {
   `;
 }
 
-// --- PAYMENT TAB (Subjects moved to bottom) ---
+// --- NEW DOCUMENTS TAB (For Enrolled Students) ---
+export async function renderStudentDocumentsTab(app) {
+  if (!app.doc_type) return `<div class="rp-empty">No documents required.</div>`;
+  
+  const docs = DOC_TYPES[app.doc_type] || [];
+  const uploaded = app.documents || {};
+
+  return `
+    <div class="progress-card">
+      <h3>Document Tracking</h3>
+      <p class="rp-hint" style="margin-bottom: 20px;">Please complete the follow-up documents below. Required documents must be verified by the Registrar.</p>
+      
+      <div class="rp-table-wrap">
+        <table class="rp-table">
+          <thead><tr><th>Document Name</th><th>Requirement</th><th>Status</th></tr></thead>
+          <tbody>
+            ${docs.map(d => {
+              const isUploaded = uploaded[d.id];
+              return `
+                <tr>
+                  <td><strong>${esc(d.name)}</strong></td>
+                  <td>${d.required ? '<span class="rp-badge red">Required</span>' : '<span class="rp-badge grey">Follow-up</span>'}</td>
+                  <td>
+                    ${isUploaded 
+                      ? `<span class="rp-badge green">Submitted (${esc(uploaded[d.id])})</span>` 
+                      : `<span class="rp-badge gold">Missing</span>`}
+                  </td>
+                </tr>
+              `;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+// --- PAYMENT TAB ---
 export async function renderPaymentTab(app, subjects, courses, settings) {
   let totalUnits = 0;
   let subjectsHtml = '';
@@ -557,45 +668,4 @@ export async function renderRegistrationTab(app, subjects, courses, settings) {
             <td style="border:1px solid #000; padding:4px; text-align:right;">${misc.toLocaleString('en-PH', {minimumFractionDigits:2})}</td>
           </tr>
           <tr>
-            <td style="border:1px solid #000; padding:4px; font-weight:bold;" colspan="4">TOTAL</td>
-            <td style="border:1px solid #000; padding:4px; text-align:right; font-weight:bold;">${total.toLocaleString('en-PH', {minimumFractionDigits:2})}</td>
-          </tr>
-          <tr>
-            <td style="border:1px solid #000; padding:4px; font-weight:bold; color:green;" colspan="4">AMOUNT PAID</td>
-            <td style="border:1px solid #000; padding:4px; text-align:right; font-weight:bold; color:green;">${paid.toLocaleString('en-PH', {minimumFractionDigits:2})}</td>
-          </tr>
-          <tr>
-            <td style="border:1px solid #000; padding:4px; font-weight:bold; color:red;" colspan="4">REMAINING BALANCE</td>
-            <td style="border:1px solid #000; padding:4px; text-align:right; font-weight:bold; color:red;">${(total - paid).toLocaleString('en-PH', {minimumFractionDigits:2})}</td>
-          </tr>
-        </tbody>
-      </table>
-
-      <!-- STAMP -->
-      <div style="display:flex; justify-content:center; margin:30px 0;">
-        <div style="border: 3px solid #2e7d32; color: #2e7d32; padding: 10px 30px; border-radius: 8px; text-align:center; transform: rotate(-5deg);">
-          <p style="font-size:12px; font-weight:bold; margin-bottom:5px;">UCC ADMISSIONS OFFICE</p>
-          <p style="font-size:28px; font-weight:900; letter-spacing:2px;">ENROLLED</p>
-          <p style="font-size:12px;">Date: ${new Date().toLocaleDateString()}</p>
-        </div>
-      </div>
-
-      <!-- SIGNATURES -->
-      <div style="display:flex; justify-content:space-between; font-size:11px; margin-top:40px;">
-        <div style="text-align:center;">
-          <p>Checked by:</p>
-          <div style="border-bottom:1px solid #000; width:150px; margin:20px auto 5px;"></div>
-          <p>Ms. Analee I. Ramos</p>
-          <p style="font-weight:bold;">Registrar Head</p>
-        </div>
-        <div style="text-align:center;">
-          <p>Approved by:</p>
-          <div style="border-bottom:1px solid #000; width:150px; margin:20px auto 5px;"></div>
-          <p>Dr. Ruthmita Rozul</p>
-          <p style="font-weight:bold;">College Director</p>
-        </div>
-      </div>
-
-    </div>
-  `;
-}
+            <
