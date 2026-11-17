@@ -1,5 +1,5 @@
-const SUPABASE_URL = 'https://oysqcgmedpmhmyaxxvjbl.supabase.co'; 
-const SUPABASE_KEY = 'PASTE_YOUR_LONG_ANON_KEY_HERE'; 
+const SUPABASE_URL = 'https://oysqcmgdpmmhyaxxvjbl.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_DZyDoTCghbN0VccKWIFMlw_R1a5tlW1';
 
 export async function supa(table, options = {}) {
   const { method = 'GET', body, match } = options;
@@ -37,12 +37,13 @@ export async function supa(table, options = {}) {
   try { return JSON.parse(text); } catch (e) { return true; }
 }
 
-// NEW: Upload file to Supabase Storage
+// Upload file to Supabase Storage
 export async function uploadFile(file, userId, docId) {
   const fileExt = file.name.split('.').pop();
   const fileName = `${userId}_${docId}_${Date.now()}.${fileExt}`;
   const filePath = `${fileName}`;
 
+  // Make sure you created a bucket called 'student-documents' and marked it as Public
   const res = await fetch(`${SUPABASE_URL}/storage/v1/object/student-documents/${filePath}`, {
     method: 'POST',
     headers: {
