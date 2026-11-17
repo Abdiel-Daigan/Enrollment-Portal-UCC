@@ -1,4 +1,4 @@
-import { esc, toast } from './utils.js';
+import { esc, toast, isHistorySubject } from './utils.js';
 import { supa } from './api.js';
 
 export async function renderAccountingDashboard() {
@@ -140,7 +140,10 @@ export async function accountingManageStudentModal(studentId) {
   const apps = await supa('applications', { match: { user_id: studentId } });
   const app = apps[0] || { amount_paid: 0 };
   
-  const subjects = await supa('student_subjects', { match: { user_id: studentId } });
+  // Only subjects the student is currently enrolled in are billed;
+  // ones already taken (Passed/Dropped) are history.
+  const subjects = (await supa('student_subjects', { match: { user_id: studentId } }))
+    .filter(s => !isHistorySubject(s));
   const courses = await supa('courses');
   const settingsRes = await supa('system_settings', { match: { id: 1 } });
   const settings = settingsRes[0] || { tuition_per_unit: 444, misc_fee: 5452, reg_fee: 1000 };

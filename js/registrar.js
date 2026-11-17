@@ -121,42 +121,57 @@ export async function renderRegistrarStudents() {
   `;
 }
 
-export async function regManageStudentModal(userId) {
+const DOC_TYPES = {
+  freshman: [
+    { id: 'form138', name: 'Form 138', required: true },
+    { id: 'psa', name: 'PSA Birth Certificate', required: true },
+    { id: 'idpic', name: 'ID Photo', required: true },
+    { id: 'goodmoral', name: 'Good Moral Certificate', required: true },
+    { id: 'exam', name: 'Entrance Exam Result', required: true }
+  ],
+  transferee: [
+    { id: 'transfer_cred', name: 'Transfer Credentials / Honorable Dismissal', required: true },
+    { id: 'tor', name: 'Transcript of Records', required: true },
+    { id: 'goodmoral_prev', name: 'Good Moral Certificate (Previous School)', required: true },
+    { id: 'psa', name: 'PSA Birth Certificate', required: true },
+    { id: 'idpic', name: 'ID Photo', required: true }
+  ],
+  returnee: [
+    { id: 'readmission', name: 'Readmission Form', required: true },
+    { id: 'clearance', name: 'Clearance from Last Term', required: true },
+    { id: 'approval', name: 'School Approval Document', required: false }
+  ]
+};
+
+const peso = (n) => Number(n || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 });
+
+export async function regManageStudentModal(userId, tab) {
+  window.regModalTab = tab || 'documents';
+  const activeTab = window.regModalTab;
+
   const users = await supa('users', { match: { id: userId } });
-  const u = users[0];
+  const u = users[0] || {};
   const apps = await supa('applications', { match: { user_id: userId } });
   const app = apps[0] || {};
-  
-  const DOC_TYPES = {
-    freshman: [
-      { id: 'form138', name: 'Form 138', required: true },
-      { id: 'psa', name: 'PSA Birth Certificate', required: true },
-      { id: 'idpic', name: 'ID Photo', required: true },
-      { id: 'goodmoral', name: 'Good Moral Certificate', required: true },
-      { id: 'exam', name: 'Entrance Exam Result', required: true }
-    ],
-    transferee: [
-      { id: 'transfer_cred', name: 'Transfer Credentials / Honorable Dismissal', required: true },
-      { id: 'tor', name: 'Transcript of Records', required: true },
-      { id: 'goodmoral_prev', name: 'Good Moral Certificate (Previous School)', required: true },
-      { id: 'psa', name: 'PSA Birth Certificate', required: true },
-      { id: 'idpic', name: 'ID Photo', required: true }
-    ],
-    returnee: [
-      { id: 'readmission', name: 'Readmission Form', required: true },
-      { id: 'clearance', name: 'Clearance from Last Term', required: true },
-      { id: 'approval', name: 'School Approval Document', required: false }
-    ]
-  };
+  const courses = await supa('courses').catch(() => []);
+  const subjects = await supa('student_subjects', { match: { user_id: userId } }).catch(() => []);
+  const logs = await supa('payment_logs', { match: { user_id: userId } }).catch(() => []);
+
+  let pr = app.program || {};
+  if (typeof pr === 'string') { try { pr = JSON.parse(pr); } catch (e) { pr = {}; } }
+  const personal = app.personal || {};
+  const education = app.education || {};
+  const courseById = (id) => courses.find(c => String(c.id) === String(id)) || {};
 
   const docs = DOC_TYPES[app.doc_type] || [];
   const uploaded = app.documents || {};
   const docStatus = app.doc_status || {};
 
-  const docRows = docs.map(d => {
+  // ---------- Documents pane ----------
+  const docRows = docs.length ? docs.map(d => {
     const isUploaded = uploaded[d.id];
     const status = docStatus[d.id] || 'Missing';
-    
+
     return `
       <tr>
         <td>
@@ -164,8 +179,8 @@ export async function regManageStudentModal(userId) {
           ${d.required ? '<span class="rp-badge red" style="margin-top:4px;">Required</span>' : '<span class="rp-badge grey" style="margin-top:4px;">Follow-up</span>'}
         </td>
         <td>
-          ${isUploaded 
-            ? `<button class="rp-btn rp-btn-ghost rp-btn-sm" onclick="window.viewDocument('${uploaded[d.id]}')">View File</button>` 
+          ${isUploaded
+            ? `<button class="rp-btn rp-btn-ghost rp-btn-sm" onclick="window.viewDocument('${uploaded[d.id]}')">View File</button>`
             : `<span class="rp-badge gold">Not Uploaded</span>`}
         </td>
         <td>
@@ -176,37 +191,206 @@ export async function regManageStudentModal(userId) {
         </td>
       </tr>
     `;
-  }).join('');
+  }).join('') : '<tr><td colspan="3" class="rp-empty">No document checklist recorded for this application yet.</td></tr>';
+
+  const documentsPane = `
+    <div class="rp-notice info" style="margin-bottom:20px;">
+      <span>ℹ️</span>
+      <span>Verify the uploaded documents below. Mark them as "Complete" once verified. The student will not appear in the Faculty portal until all <strong>Required</strong> documents are marked Complete.</span>
+    </div>
+
+    <div class="rp-table-wrap">
+      <table class="rp-table">
+        <thead><tr><th>Document Name</th><th>File</th><th>Registrar Status</th></tr></thead>
+        <tbody>${docRows}</tbody>
+      </table>
+    </div>
+
+    <div style="margin-top: 24px; border-top: 1px solid #eee; padding-top: 20px;">
+      <h4 style="margin-bottom: 10px; font-size:14px;">Return Application?</h4>
+      <p class="rp-hint" style="margin-bottom: 10px;">If a document is invalid or missing, you can return the application to the student with a reason.</p>
+      <form id="regReturnForm" style="display:flex; gap:10px;">
+        <input type="hidden" name="user_id" value="${userId}">
+        <input class="rp-input" name="feedback" placeholder="Reason for returning (e.g., Blurry PSA image)" required>
+        <button type="submit" class="rp-btn rp-btn-danger">Return Application</button>
+      </form>
+    </div>
+  `;
+
+  // ---------- Subjects pane ----------
+  const subjectRows = subjects.length ? subjects.map(s => {
+    const c = courseById(s.course_id);
+    const remarks = String(s.remarks || 'Ongoing');
+    const badge = remarks === 'Passed' ? 'green' : remarks === 'Dropped' ? 'red' : 'gold';
+
+    return `
+      <tr>
+        <td><strong>${esc(c.code || '—')}</strong></td>
+        <td>${esc(c.title || 'Unknown subject')}</td>
+        <td style="text-align:center">${esc(c.units)}</td>
+        <td>${esc(s.grade)}</td>
+        <td><span class="rp-badge ${badge}">${esc(remarks)}</span></td>
+        <td style="text-align:right">
+          <button type="button" class="rp-btn rp-btn-danger rp-btn-sm" onclick="window.regDeleteStudentSubject(${s.id}, ${userId})">Remove</button>
+        </td>
+      </tr>
+    `;
+  }).join('') : '<tr><td colspan="6" class="rp-empty">No subjects recorded for this student yet.</td></tr>';
+
+  const subjectsPane = `
+    <div class="rp-notice info" style="margin-bottom:18px;">
+      <span>ℹ️</span>
+      <span>Type the course code and the subject name fills in automatically. Record the grade and whether the student <strong>Passed</strong> or <strong>Dropped</strong> it. Faculty will skip these subjects when applying presets.</span>
+    </div>
+
+    <div class="rp-card" style="background:var(--mint-50); margin-bottom:18px;">
+      <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end;">
+        <div class="field" style="flex:1 1 180px; margin-bottom:0;">
+          <label>Course Code</label>
+          <input class="rp-input" id="reg_subject_code" placeholder="e.g. BSCS-101" oninput="this.value = this.value.toUpperCase(); window.regLookupCourseCode();">
+        </div>
+        <div class="field" style="flex:2 1 240px; margin-bottom:0;">
+          <label>Course Name</label>
+          <input class="rp-input" id="reg_subject_title" placeholder="Fills in automatically from the course code" readonly>
+        </div>
+        <div class="field" style="width:110px; margin-bottom:0;">
+          <label>Grade</label>
+          <input class="rp-input" id="reg_subject_grade" placeholder="e.g. 1.25">
+        </div>
+        <div class="field" style="width:150px; margin-bottom:0;">
+          <label>Remarks</label>
+          <select class="rp-input" id="reg_subject_remarks">
+            <option value="Passed">Passed</option>
+            <option value="Dropped">Dropped</option>
+          </select>
+        </div>
+        <button type="button" class="rp-btn rp-btn-primary" onclick="window.regAddStudentSubject(${userId})">Add Subject</button>
+      </div>
+      <div id="regSubjectError" class="rp-hint" style="color:var(--danger); display:none; margin-top:10px;"></div>
+    </div>
+
+    <div class="rp-table-wrap">
+      <table class="rp-table">
+        <thead><tr><th>Code</th><th>Course Name</th><th style="text-align:center">Units</th><th>Grade</th><th>Remarks</th><th style="text-align:right">Action</th></tr></thead>
+        <tbody>${subjectRows}</tbody>
+      </table>
+    </div>
+  `;
+
+  // ---------- Student record pane ----------
+  const kv = (label, value) => `
+    <div style="display:flex; justify-content:space-between; gap:16px; padding:7px 0; border-bottom:1px solid #eef7f3;">
+      <span class="rp-hint">${esc(label)}</span>
+      <strong style="font-size:12.8px; text-align:right;">${esc(value === null || value === undefined || value === '' ? '—' : value)}</strong>
+    </div>
+  `;
+
+  const educationValue = (block) => block
+    ? `${block.school || 'School not recorded'} ${block.year ? '(' + block.year + ')' : ''}`.trim()
+    : '';
+
+  const docStatusRows = docs.length ? docs.map(d => {
+    const status = docStatus[d.id] || 'Missing';
+    return `<tr><td>${esc(d.name)}</td><td style="text-align:right"><span class="rp-badge ${status === 'Complete' ? 'green' : 'red'}">${esc(status)}</span></td></tr>`;
+  }).join('') : '<tr><td colspan="2" class="rp-empty">No documents on file.</td></tr>';
+
+  const paymentRows = logs.length ? logs
+    .slice()
+    .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0))
+    .map(l => `
+      <div style="display:flex; justify-content:space-between; gap:16px; padding:7px 0; border-bottom:1px solid #eef7f3;">
+        <span class="rp-hint">${esc(l.created_at ? new Date(l.created_at).toLocaleDateString('en-PH') : '—')} · ${esc(l.reference_no || 'No reference')} · ${esc(l.processed_by || '—')} · ${esc(l.payment_type || '—')}</span>
+        <strong style="font-size:12.8px;">₱${peso(l.amount)}</strong>
+      </div>
+    `).join('') : '<div class="rp-hint" style="padding:8px 0;">No payments recorded for this student.</div>';
+
+  const recordPane = `
+    <div class="rp-grid-2">
+      <div class="rp-card">
+        <div class="rp-card-head"><h3>Student Information</h3></div>
+        ${kv('Full Name', u.name)}
+        ${kv('Student ID', u.student_id)}
+        ${kv('Email', u.email)}
+        ${kv('Contact Number', personal.phone)}
+        ${kv('Address', personal.address)}
+        ${kv('Role', u.role)}
+      </div>
+
+      <div class="rp-card">
+        <div class="rp-card-head"><h3>Enrollment</h3></div>
+        ${kv('Program', PROGRAMS[pr.preferred] || 'Not set')}
+        ${kv('Year Level', pr.year_level ? 'Year ' + pr.year_level : '')}
+        ${kv('Status', app.status || (app.submitted ? 'Pending' : 'In Progress'))}
+        ${kv('Regularity', app.is_regular === false ? 'Irregular' : 'Regular')}
+        ${kv('Application Type', app.doc_type)}
+        ${kv('Submitted', app.submitted ? 'Yes' : 'No')}
+        ${kv('Returned', app.returned ? 'Yes — ' + (app.registrar_feedback || 'no feedback given') : 'No')}
+        ${kv('Reference No.', app.reference)}
+      </div>
+    </div>
+
+    <div class="rp-card" style="margin-top:16px;">
+      <div class="rp-card-head"><h3>Educational Background</h3></div>
+      ${kv('Elementary', educationValue(education.elem))}
+      ${kv('Junior High School', educationValue(education.jhs))}
+      ${kv('Senior High School', educationValue(education.shs))}
+    </div>
+
+    <div class="rp-card" style="margin-top:16px;">
+      <div class="rp-card-head">
+        <h3>Documents</h3>
+        <span class="rp-hint">${docs.filter(d => (docStatus[d.id] || 'Missing') === 'Complete').length}/${docs.length} complete</span>
+      </div>
+      <div class="rp-table-wrap">
+        <table class="rp-table">
+          <thead><tr><th>Document</th><th style="text-align:right">Status</th></tr></thead>
+          <tbody>${docStatusRows}</tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="rp-card" style="margin-top:16px;">
+      <div class="rp-card-head">
+        <h3>Subjects &amp; Grades</h3>
+        <span class="rp-badge green">${subjects.length} record(s)</span>
+      </div>
+      <div class="rp-table-wrap">
+        <table class="rp-table">
+          <thead><tr><th>Code</th><th>Course Name</th><th style="text-align:center">Units</th><th>Grade</th><th>Remarks</th><th style="text-align:right">Action</th></tr></thead>
+          <tbody>${subjectRows}</tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="rp-card" style="margin-top:16px;">
+      <div class="rp-card-head">
+        <h3>Payments</h3>
+        <span class="rp-badge gold">₱${peso(app.amount_paid)} paid</span>
+      </div>
+      ${paymentRows}
+    </div>
+  `;
 
   const modalHtml = `
     <div class="rp-modal-backdrop" id="regStudentModal">
       <div class="rp-modal wide">
         <div class="rp-modal-head">
-          <h3>Manage Documents — ${esc(u.name)}</h3>
+          <div>
+            <h3>Manage Student — ${esc(u.name || 'Unknown student')}</h3>
+            <div class="rp-hint">${esc(u.email || '')}${u.student_id ? ' · ' + esc(u.student_id) : ''}</div>
+          </div>
           <button type="button" class="rp-btn rp-btn-ghost rp-btn-sm" onclick="document.getElementById('regStudentModal').remove()">✕</button>
         </div>
         <div class="rp-modal-body">
-          <div class="rp-notice info" style="margin-bottom:20px;">
-            <span>ℹ️</span>
-            <span>Verify the uploaded documents below. Mark them as "Complete" once verified. The student will not appear in the Faculty portal until all <strong>Required</strong> documents are marked Complete.</span>
-          </div>
-          
-          <div class="rp-table-wrap">
-            <table class="rp-table">
-              <thead><tr><th>Document Name</th><th>File</th><th>Registrar Status</th></tr></thead>
-              <tbody>${docRows}</tbody>
-            </table>
+          <div class="rp-tabs">
+            <button type="button" class="rp-tab ${activeTab === 'documents' ? 'active' : ''}" data-tab="documents" onclick="window.regStudentModalTab('documents')">Documents</button>
+            <button type="button" class="rp-tab ${activeTab === 'subjects' ? 'active' : ''}" data-tab="subjects" onclick="window.regStudentModalTab('subjects')">Subjects Taken</button>
+            <button type="button" class="rp-tab ${activeTab === 'record' ? 'active' : ''}" data-tab="record" onclick="window.regStudentModalTab('record')">Student Record</button>
           </div>
 
-          <div style="margin-top: 24px; border-top: 1px solid #eee; padding-top: 20px;">
-            <h4 style="margin-bottom: 10px; font-size:14px;">Return Application?</h4>
-            <p class="rp-hint" style="margin-bottom: 10px;">If a document is invalid or missing, you can return the application to the student with a reason.</p>
-            <form id="regReturnForm" style="display:flex; gap:10px;">
-              <input type="hidden" name="user_id" value="${userId}">
-              <input class="rp-input" name="feedback" placeholder="Reason for returning (e.g., Blurry PSA image)" required>
-              <button type="submit" class="rp-btn rp-btn-danger">Return Application</button>
-            </form>
-          </div>
+          <div class="rp-pane ${activeTab === 'documents' ? 'active' : ''}" data-pane="documents">${documentsPane}</div>
+          <div class="rp-pane ${activeTab === 'subjects' ? 'active' : ''}" data-pane="subjects">${subjectsPane}</div>
+          <div class="rp-pane ${activeTab === 'record' ? 'active' : ''}" data-pane="record">${recordPane}</div>
         </div>
         <div class="rp-modal-foot">
           <button type="button" class="rp-btn rp-btn-primary" onclick="document.getElementById('regStudentModal').remove()">Done</button>
@@ -218,6 +402,114 @@ export async function regManageStudentModal(userId) {
   document.getElementById('regStudentModal')?.remove();
   document.body.insertAdjacentHTML('beforeend', modalHtml);
 }
+
+window.regStudentModalTab = (tab) => {
+  window.regModalTab = tab;
+  document.querySelectorAll('#regStudentModal .rp-pane').forEach(p => {
+    p.classList.toggle('active', p.dataset.pane === tab);
+  });
+  document.querySelectorAll('#regStudentModal .rp-tab').forEach(b => {
+    b.classList.toggle('active', b.dataset.tab === tab);
+  });
+};
+
+window.regLookupCourseCode = async () => {
+  const codeInput = document.getElementById('reg_subject_code');
+  const titleInput = document.getElementById('reg_subject_title');
+  const err = document.getElementById('regSubjectError');
+  if (!codeInput || !titleInput || !err) return;
+
+  const code = (codeInput.value || '').trim().toUpperCase();
+  if (!code) {
+    titleInput.value = '';
+    err.style.display = 'none';
+    return;
+  }
+
+  const courses = await supa('courses').catch(() => []);
+  const course = courses.find(c => String(c.code || '').trim().toUpperCase() === code);
+
+  if (!course) {
+    titleInput.value = '';
+    err.textContent = 'Invalid course code';
+    err.style.display = 'block';
+    return;
+  }
+
+  titleInput.value = `${course.title} (${course.units} units)`;
+  err.style.display = 'none';
+};
+
+window.regAddStudentSubject = async (userId) => {
+  const codeInput = document.getElementById('reg_subject_code');
+  const gradeInput = document.getElementById('reg_subject_grade');
+  const remarksInput = document.getElementById('reg_subject_remarks');
+  const err = document.getElementById('regSubjectError');
+  if (!codeInput || !err) return;
+
+  const code = (codeInput.value || '').trim().toUpperCase();
+  const grade = (gradeInput ? gradeInput.value : '').trim();
+  const remarks = remarksInput ? remarksInput.value : 'Passed';
+
+  if (!code) {
+    err.textContent = 'Enter a course code first.';
+    err.style.display = 'block';
+    return;
+  }
+
+  try {
+    const courses = await supa('courses').catch(() => []);
+    const course = courses.find(c => String(c.code || '').trim().toUpperCase() === code);
+
+    if (!course) {
+      err.textContent = 'Invalid course code';
+      err.style.display = 'block';
+      return;
+    }
+
+    const existing = await supa('student_subjects', { match: { user_id: Number(userId) } }).catch(() => []);
+    if (existing.some(s => String(s.course_id) === String(course.id))) {
+      err.textContent = 'This subject is already recorded for this student.';
+      err.style.display = 'block';
+      return;
+    }
+
+    await supa('student_subjects', {
+      method: 'POST',
+      body: {
+        user_id: Number(userId),
+        course_id: Number(course.id),
+        status: remarks,
+        grade: grade || null,
+        remarks: remarks
+      }
+    });
+
+    toast(`${course.code} saved as ${remarks}.`);
+    await regManageStudentModal(userId, 'subjects');
+  } catch (e) {
+    console.error('Add subject failed:', e);
+    const message = String(e.message || '');
+    // PostgREST reports unknown columns as a schema-cache miss
+    const missingColumns = /grade|remarks|column|schema cache/i.test(message);
+    err.textContent = missingColumns
+      ? 'Could not save: the student_subjects table is missing the grade/remarks columns. Run the database setup SQL first, then try again.'
+      : 'Could not save the subject: ' + (message || 'unknown error');
+    err.style.display = 'block';
+  }
+};
+
+window.regDeleteStudentSubject = async (rowId, userId) => {
+  if (!confirm('Remove this subject record from the student?')) return;
+  try {
+    await supa('student_subjects', { method: 'DELETE', match: { id: Number(rowId) } });
+    toast('Subject record removed.');
+    await regManageStudentModal(userId, window.regModalTab || 'subjects');
+  } catch (e) {
+    console.error('Delete subject failed:', e);
+    toast('Could not remove the subject record.', 'error');
+  }
+};
 
 window.viewDocument = (url) => {
   window.open(url, '_blank');

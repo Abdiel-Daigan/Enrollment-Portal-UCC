@@ -1,4 +1,4 @@
-import { $, esc, toast, initials } from './utils.js';
+import { $, esc, toast, initials, isHistorySubject } from './utils.js';
 import { supa } from './api.js';
 import { session, loadSession, doLogin, doRegister, doLogout } from './auth.js';
 import { renderStudentDashboard, renderApply, renderPaymentTab, renderScheduleTab, renderRegistrationTab, renderStudentDocumentsTab } from './student.js';
@@ -35,7 +35,9 @@ export async function renderAll() {
   pageWrap.className = 'page-wrap'; // Resets layout to student style
   const apps = await supa('applications', { match: { user_id: session.userId } }).catch(() => []);
   const app = apps[0] || {};
-  const subjects = await supa('student_subjects', { match: { user_id: session.userId } }).catch(() => []);
+  // Subjects already taken (remarks Passed/Dropped) are history, not the current load
+  const subjects = (await supa('student_subjects', { match: { user_id: session.userId } }).catch(() => []))
+    .filter(s => !isHistorySubject(s));
   const courses = await supa('courses').catch(() => []);
   const settingsRes = await supa('system_settings', { match: { id: 1 } }).catch(() => []);
   const settings = settingsRes[0] || { tuition_per_unit: 444, misc_fee: 5452, reg_fee: 1000 };
@@ -395,12 +397,20 @@ window.facultyLoadPresetToTemp = async (presetId) => {
     const presetSubs = await supa('preset_subjects', { match: { preset_id: presetId } });
     const courses = await supa('courses');
     const currentTaken = await supa('student_subjects', { match: { user_id: window.facultySelectedStudent } });
+    // A preset must never re-offer a subject the student already finished
+    const takenIds = new Set(currentTaken
+      .filter(t => !isHistorySubject(t))
+      .map(t => String(t.course_id)));
+    const historyIds = new Set(currentTaken
+      .filter(t => isHistorySubject(t))
+      .map(t => String(t.course_id)));
 
     let addedCount = 0;
+    let skippedCount = 0;
     for (const ps of presetSubs) {
       const courseId = ps.course_id;
-      
-      if (currentTaken.some(t => String(t.course_id) === String(courseId))) continue;
+
+      if (takenIds.has(String(courseId)) || historyIds.has(String(courseId))) { skippedCount++; continue; }
       if (window.tempStudentSubjects.some(s => String(s.courseId) === String(courseId))) continue;
 
       const c = courses.find(x => String(x.id) === String(courseId));
@@ -413,7 +423,9 @@ window.facultyLoadPresetToTemp = async (presetId) => {
     if (addedCount > 0) {
       toast(`Added ${addedCount} subjects to the pending list.`);
     } else {
-      toast('No new subjects to add (already in list or confirmed).', 'warn');
+      toast(skippedCount > 0
+        ? `No new subjects to add — ${skippedCount} already taken or in the list.`
+        : 'No new subjects to add (already in list or confirmed).', 'warn');
     }
     
     renderAll();

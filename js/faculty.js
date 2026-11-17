@@ -1,4 +1,4 @@
-import { esc, toast } from './utils.js';
+import { esc, toast, isHistorySubject } from './utils.js';
 import { supa } from './api.js';
 
 const PROGRAMS = {
@@ -85,13 +85,19 @@ export async function renderFacultyProgress() {
       const isRegular = app.is_regular !== false;
       
       const programCourses = courses.filter(c => String(c.program_id) === String(progId) || String(c.program_id) === '0');
-      const taken = subjects.filter(s => String(s.user_id) === String(student.id));
-      
+      const allRecorded = subjects.filter(s => String(s.user_id) === String(student.id));
+      // Subjects the Registrar already graded (Passed/Dropped) are history, not current load
+      const completedSubjects = allRecorded.filter(isHistorySubject);
+      const taken = allRecorded.filter(s => !isHistorySubject(s));
+
       const confirmedIds = taken.map(t => String(t.course_id));
+      const completedIds = completedSubjects.map(t => String(t.course_id));
       const tempIds = window.tempStudentSubjects.map(t => String(t.courseId));
-      
-      const availableToAdd = programCourses.filter(c => 
-        !confirmedIds.includes(String(c.id)) && !tempIds.includes(String(c.id))
+
+      const availableToAdd = programCourses.filter(c =>
+        !confirmedIds.includes(String(c.id)) &&
+        !completedIds.includes(String(c.id)) &&
+        !tempIds.includes(String(c.id))
       );
 
       const matchingPresets = presets.filter(p => String(p.program_id) === String(progId) && String(p.year_level) === String(pr.year_level));
@@ -146,7 +152,8 @@ export async function renderFacultyProgress() {
             
             ${matchingPresets.length ? `
               <div style="margin-bottom: 20px; background:var(--mint-100); padding: 14px; border-radius: 10px;">
-                <div style="font-size:13px; font-weight:700; margin-bottom:10px; color:var(--mint-800)">Available Presets</div>
+                <div style="font-size:13px; font-weight:700; margin-bottom:6px; color:var(--mint-800)">Available Presets</div>
+                <div class="rp-hint" style="margin-bottom:10px;">Subjects the student already took (Passed/Dropped) are skipped automatically.</div>
                 ${matchingPresets.map(mp => {
                   const subCount = presetSubs.filter(ps => String(ps.preset_id) === String(mp.id)).length;
                   return `
@@ -194,6 +201,28 @@ export async function renderFacultyProgress() {
             `;
           }).join('') : '<div class="rp-empty">No subjects added to the student yet.</div>'}
         </div>
+
+        ${completedSubjects.length ? `
+        <div class="rp-card" style="margin-top: 20px;">
+          <div class="rp-card-head">
+            <h3>🎓 Subjects Already Taken</h3>
+            <span class="rp-badge grey">${completedSubjects.length} subject(s)</span>
+          </div>
+          <div class="rp-hint" style="margin-bottom:10px;">Recorded by the Registrar — these are excluded from presets and from the subject picker.</div>
+          ${completedSubjects.map(t => {
+            const c = courses.find(x => String(x.id) === String(t.course_id)) || {};
+            const remarks = String(t.remarks || '');
+            return `
+              <div style="display:flex;justify-content:space-between;padding:12px 0;border-bottom:1px solid #eee; align-items:center;">
+                <div>
+                  <div style="font-size:13.5px;font-weight:600">${esc(c.code || '—')} — ${esc(c.title || 'Unknown subject')}</div>
+                  <div class="rp-hint">${esc(c.units || '—')} units · Grade: ${esc(t.grade || '—')}</div>
+                </div>
+                <span class="rp-badge ${remarks === 'Passed' ? 'green' : 'red'}">${esc(remarks || '—')}</span>
+              </div>
+            `;
+          }).join('')}
+        </div>` : ''}
       `;
     }
   }

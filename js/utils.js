@@ -7,6 +7,12 @@ export const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => (
 
 export const nowISO = () => new Date().toISOString();
 
+// Remarks that mean a subject is already finished and must not be offered again
+export const HISTORY_REMARKS = ['Passed', 'Dropped', 'Failed'];
+
+export const isHistorySubject = (subject) =>
+  HISTORY_REMARKS.includes(String((subject && subject.remarks) || '').trim());
+
 export function hash(pw) {
   let h = 5381;
   const s = pw + '::ucc$salt';
