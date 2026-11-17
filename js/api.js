@@ -1,9 +1,40 @@
-import { toast } from './utils.js';
-const SUPABASE_URL = 'https://oysqcmgdpmmhyaxxvjbl.supabase.co';
-const SUPABASE_KEY = 'sb_publishable_DZyDoTCghbN0VccKWIFMlw_R1a5tlW1';
+const SUPABASE_URL = 'https://oysqcgmedpmhmyaxxvjbl.supabase.co'; 
+const SUPABASE_KEY = 'PASTE_YOUR_LONG_ANON_KEY_HERE'; 
 
 export async function supa(table, options = {}) {
-  // ... (Keep your existing supa function exactly as is) ...
+  const { method = 'GET', body, match } = options;
+  const baseUrl = SUPABASE_URL.replace(/\/$/, '');
+  let url = baseUrl + '/rest/v1/' + table;
+
+  const params = [];
+  if (match) {
+    Object.entries(match).forEach(([k, v]) => {
+      params.push(k + '=eq.' + encodeURIComponent(v));
+    });
+  }
+  if (params.length) url += '?' + params.join('&');
+
+  const headers = {
+    'apikey': SUPABASE_KEY,
+    'Authorization': 'Bearer ' + SUPABASE_KEY,
+    'Content-Type': 'application/json'
+  };
+  
+  if (method === 'POST' || method === 'PATCH') {
+    headers['Prefer'] = 'return=representation';
+  }
+
+  const res = await fetch(url, { method, headers, body: body ? JSON.stringify(body) : undefined });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || res.statusText);
+  }
+
+  const text = await res.text();
+  if (!text) return true;
+  
+  try { return JSON.parse(text); } catch (e) { return true; }
 }
 
 // NEW: Upload file to Supabase Storage
