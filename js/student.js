@@ -467,6 +467,60 @@ export async function renderPaymentTab(app, subjects, courses, settings) {
   const paid = Number(app.amount_paid || 0);
   const balance = total - paid;
 
+  // Receipts: every payment logged for this student (online or recorded by Accounting)
+  const logs = await supa('payment_logs', { match: { user_id: session.userId } }).catch(() => []);
+  const peso = (n) => Number(n || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 });
+
+  let runningTotal = 0;
+  const receipts = logs
+    .slice()
+    .sort((a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0))
+    .map(log => {
+      runningTotal += Number(log.amount || 0);
+      return { log, cumulative: runningTotal };
+    })
+    .reverse(); // newest receipt first
+
+  const receiptsHtml = receipts.length ? receipts.map(({ log, cumulative }) => {
+    const when = log.created_at ? new Date(log.created_at) : null;
+    const dateText = when && !isNaN(when)
+      ? when.toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' })
+      : 'Date not recorded';
+
+    return `
+      <div class="rp-card" style="margin-bottom:14px; border-left:4px solid var(--gold-500);">
+        <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:16px; flex-wrap:wrap;">
+          <div>
+            <div style="font-family:var(--serif); font-size:15.5px; font-weight:800; color:var(--mint-800);">UNIDA CHRISTIAN COLLEGES</div>
+            <div class="rp-hint" style="font-size:10.5px; letter-spacing:1px; text-transform:uppercase;">Official Payment Receipt</div>
+          </div>
+          <div style="text-align:right;">
+            <div class="rp-badge grey">${esc(log.reference_no || 'No reference')}</div>
+            <div class="rp-hint" style="margin-top:6px;">${esc(dateText)}</div>
+          </div>
+        </div>
+
+        <div class="rp-grid-2" style="margin-top:16px;">
+          <div>
+            <div class="rp-hint">Payment Type</div>
+            <strong>${esc(log.payment_type || 'Payment')}</strong>
+          </div>
+          <div>
+            <div class="rp-hint">Processed By</div>
+            <strong>${esc(log.processed_by || 'Online')}</strong>
+          </div>
+        </div>
+
+        <div style="display:flex; justify-content:space-between; align-items:flex-end; gap:16px; flex-wrap:wrap; border-top:1px dashed var(--line); margin-top:14px; padding-top:12px;">
+          <div class="rp-hint">Received from ${esc(session.name)} · total paid to date ₱${peso(cumulative)}</div>
+          <div style="font-size:20px; font-weight:800; color:var(--mint-700);">₱${peso(log.amount)}</div>
+        </div>
+      </div>
+    `;
+  }).join('') : `
+    <div class="rp-empty"><span class="big">🧾</span>No payments recorded yet. Receipts appear here as soon as a payment is made online or recorded by the Accounting office.</div>
+  `;
+
   return `
     <div class="progress-card">
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
@@ -531,6 +585,14 @@ export async function renderPaymentTab(app, subjects, courses, settings) {
           </table>
         </div>
       </div>
+    </div>
+
+    <div class="progress-card">
+      <div class="rp-card-head">
+        <h3>Payment Receipts</h3>
+        <span class="rp-hint">${receipts.length} transaction${receipts.length === 1 ? '' : 's'} · synced with the Accounting payment logs</span>
+      </div>
+      ${receiptsHtml}
     </div>
   `;
 }
