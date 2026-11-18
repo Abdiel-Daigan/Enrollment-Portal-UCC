@@ -7,6 +7,15 @@ export const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => (
 
 export const nowISO = () => new Date().toISOString();
 
+// Opens an uploaded document in a new tab. Defined once here so every portal
+// uses the same behaviour (the inline onclick handlers call this global).
+export function viewDocument(url) {
+  if (!url) return;
+  window.open(url, '_blank', 'noopener');
+}
+
+window.viewDocument = viewDocument;
+
 // Remarks that mean a subject is already finished and must not be offered again
 export const HISTORY_REMARKS = ['Passed', 'Dropped', 'Failed'];
 

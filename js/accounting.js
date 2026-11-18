@@ -122,8 +122,8 @@ export async function renderAccountingDashboard() {
 }
 
 export async function renderAccountingLogs() {
-  const logs = await supa('payment_logs');
-  const users = await supa('users');
+  const logs = await supa('payment_logs').catch(() => []);
+  const users = await supa('users').catch(() => []);
   
   // Sort by newest first
   logs.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
@@ -155,7 +155,7 @@ export async function renderAccountingLogs() {
 }
 
 export async function renderAccountingSettings() {
-  const settingsRes = await supa('system_settings', { match: { id: 1 } });
+  const settingsRes = await supa('system_settings', { match: { id: 1 } }).catch(() => []);
   const settings = settingsRes[0] || { tuition_per_unit: 444, misc_fee: 5452, reg_fee: 1000 };
 
   return `
@@ -183,8 +183,8 @@ export async function renderAccountingSettings() {
 }
 
 export async function renderAccountingStudents() {
-  const users = await supa('users', { match: { role: 'student' } });
-  const apps = await supa('applications');
+  const users = await supa('users', { match: { role: 'student' } }).catch(() => []);
+  const apps = await supa('applications').catch(() => []);
   const search = (window.accSearch || '').toLowerCase();
 
   const filtered = users.filter(u => u.name.toLowerCase().includes(search));
@@ -221,17 +221,18 @@ export async function renderAccountingStudents() {
 }
 
 export async function accountingManageStudentModal(studentId) {
-  const users = await supa('users', { match: { id: studentId } });
+  const users = await supa('users', { match: { id: studentId } }).catch(() => []);
   const u = users[0];
-  const apps = await supa('applications', { match: { user_id: studentId } });
+  if (!u) return toast('This student could not be loaded.', 'error');
+  const apps = await supa('applications', { match: { user_id: studentId } }).catch(() => []);
   const app = apps[0] || { amount_paid: 0 };
   
   // Only subjects the student is currently enrolled in are billed;
   // ones already taken (Passed/Dropped) are history.
-  const subjects = (await supa('student_subjects', { match: { user_id: studentId } }))
+  const subjects = (await supa('student_subjects', { match: { user_id: studentId } }).catch(() => []))
     .filter(s => !isHistorySubject(s));
-  const courses = await supa('courses');
-  const settingsRes = await supa('system_settings', { match: { id: 1 } });
+  const courses = await supa('courses').catch(() => []);
+  const settingsRes = await supa('system_settings', { match: { id: 1 } }).catch(() => []);
   const settings = settingsRes[0] || { tuition_per_unit: 444, misc_fee: 5452, reg_fee: 1000 };
 
   let totalUnits = 0;

@@ -17,8 +17,12 @@ import {
   regEditPrereqModal
 } from './registrar.js';
 import { decodePrereqSet, hydratePrereqSets, encodePrereqName, evaluatePrerequisites, missingLabel } from './prereqs.js';
+import { renderTemplate, preloadTemplates, setActiveNav } from './templates.js';
 
 loadSession();
+
+// Each portal's markup lives in html/<portal>.html. Load it before rendering.
+await preloadTemplates(['auth', 'student', 'admin', 'faculty', 'accounting', 'registrar']);
 
 export async function renderAll() {
   const authPage = $('#authPage');
@@ -29,7 +33,7 @@ export async function renderAll() {
     authPage.classList.remove('hidden');
     pageWrap.classList.add('hidden');
     navbar.classList.add('hidden');
-    renderAuthPage();
+    await renderAuthPage();
     return;
   }
 
@@ -84,21 +88,12 @@ export async function renderAll() {
     window.currentView = currentView;
   }
 
-  navbar.innerHTML = `
-    <div class="nav-brand">
-      <img src="Images/ucc-logo.png" alt="Unida Christian Colleges" class="nav-brand-logo">
-      <div class="nav-brand-text"><span class="b1">UNIDA</span><span class="b2">CHRISTIAN COLLEGES</span></div>
-    </div>
-    <div class="nav-links">
-      ${navItems.map(item => `
+  navbar.innerHTML = await renderTemplate('student', {
+    links: navItems.map(item => `
         <button class="nav-link ${currentView === item.id ? 'active' : ''}" data-nav="${item.id}">${item.label}</button>
-      `).join('')}
-    </div>
-    <div style="display:flex; align-items:center; gap:16px;">
-      <span style="font-size:14px; font-weight:600; color:#fff;">${esc(session.name)}</span>
-      <button class="btn btn-outline btn-sm" onclick="window.logout()" style="color:#fff; border-color:rgba(255,255,255,0.4)">Logout</button>
-    </div>
-  `;
+      `).join(''),
+    userName: esc(session.name)
+  });
 
   pageWrap.innerHTML = '<div class="progress-card">Loading...</div>';
 
@@ -142,51 +137,8 @@ window.payTuition = async (type, total, currentPaid) => {
 };
 
 // --- LOGIN / REGISTRATION ---
-function renderAuthPage() {
-  $('#authPage').innerHTML = `
-    <header class="auth-topbar">
-      <div class="auth-topbar-brand">
-        <img src="Images/ucc-logo.png" alt="Unida Christian Colleges" class="auth-logo">
-        <div class="auth-topbar-text">
-          <strong>Unida Christian Colleges</strong>
-          <span>Enrollment Portal</span>
-        </div>
-      </div>
-      <div class="auth-topbar-meta">Admissions &amp; Registrar</div>
-    </header>
-
-    <div class="auth-hero">
-      <div class="auth-hero-inner">
-        <div class="auth-card">
-          <div class="auth-form-head">
-            <h2>Sign in</h2>
-            <p>Use your school account to continue.</p>
-          </div>
-
-          <div class="auth-tabs">
-            <button class="auth-tab active" data-action="authTab" data-tab="login">Sign In</button>
-            <button class="auth-tab" data-action="authTab" data-tab="register">Register</button>
-          </div>
-
-          <form id="loginForm">
-            <div class="field"><label>Email</label><input type="email" name="email" autocomplete="email" placeholder="you@unida.edu.ph" required></div>
-            <div class="field"><label>Password</label><input type="password" name="password" autocomplete="current-password" placeholder="Enter your password" required></div>
-            <button class="btn btn-primary btn-block" type="submit">Sign In</button>
-          </form>
-
-          <form id="registerForm" class="hidden">
-            <div class="field"><label>Full Name</label><input type="text" name="name" autocomplete="name" placeholder="Juan Dela Cruz" required></div>
-            <div class="field"><label>Email</label><input type="email" name="email" autocomplete="email" placeholder="you@email.com" required></div>
-            <div class="field"><label>Password</label><input type="password" name="password" autocomplete="new-password" placeholder="At least 6 characters" required></div>
-            <button class="btn btn-primary btn-block" type="submit">Create Account</button>
-          </form>
-
-          <div class="auth-foot">New students can create an account with the <strong>Register</strong> tab.</div>
-        </div>
-      </div>
-      <div class="auth-hero-foot">Unida Christian Colleges · Admissions and Guidance Office</div>
-    </div>
-  `;
+async function renderAuthPage() {
+  $('#authPage').innerHTML = await renderTemplate('auth');
 }
 
 // --- ADMIN LAYOUT ---
@@ -202,6 +154,26 @@ const ADMIN_VIEWS = {
   fees: { label: 'Fee Settings', sub: 'Accounting' }
 };
 
+const FACULTY_VIEWS = {
+  dashboard: { label: 'Dashboard', sub: 'Student Evaluation' },
+  progress: { label: 'Check Students', sub: 'Assign student subjects' }
+};
+
+const ACCOUNTING_VIEWS = {
+  dashboard: { label: 'Dashboard', sub: 'Manage student payments' },
+  logs: { label: 'Payment Logs', sub: 'Recorded transactions' },
+  students: { label: 'Student Payments', sub: 'Process a payment' },
+  settings: { label: 'Fee Settings', sub: 'Tuition and other fees' }
+};
+
+const REGISTRAR_VIEWS = {
+  dashboard: { label: 'Dashboard', sub: 'Manage academic records' },
+  students: { label: 'Student Management', sub: 'Applications and records' },
+  presets: { label: 'Preset Subjects', sub: 'Curriculum presets' },
+  prereqs: { label: 'Prerequisite Subjects', sub: 'Required sequences' },
+  courses: { label: 'Manage Subjects', sub: 'Curriculum' }
+};
+
 async function renderAdminLayout() {
   const pageWrap = $('#pageWrap');
   pageWrap.className = 'role-page-wrap'; // Enforces full flush width
@@ -212,40 +184,13 @@ async function renderAdminLayout() {
   window.currentView = view;
   const meta = ADMIN_VIEWS[view];
 
-  const navBtn = (id) => `
-    <button class="role-nav-item ${view === id ? 'active' : ''}" onclick="window.setAdminView('${id}')">${ADMIN_VIEWS[id].label}</button>
-  `;
-
-  pageWrap.innerHTML = `
-    <div class="role-shell">
-      <aside class="role-sidebar">
-        <div class="role-side-brand"><strong>Admin Portal</strong><span>Full system access</span></div>
-        <nav class="role-nav">
-          ${navBtn('dashboard')}
-          <div class="role-nav-group">Records</div>
-          ${navBtn('students')}
-          <div class="role-nav-group">Curriculum</div>
-          ${navBtn('courses')}
-          ${navBtn('presets')}
-          ${navBtn('prereqs')}
-          <div class="role-nav-group">Enrollment</div>
-          ${navBtn('faculty')}
-          <div class="role-nav-group">Finance</div>
-          ${navBtn('logs')}
-          ${navBtn('payments')}
-          ${navBtn('fees')}
-        </nav>
-        <div class="role-side-foot"><button onclick="window.logout()">Sign out</button></div>
-      </aside>
-      <div class="role-main">
-        <header class="role-topbar">
-          <div><h1>${esc(meta.label)}</h1><div class="rt-sub">${esc(meta.sub)}</div></div>
-          <div class="rt-user"><div class="rt-who"><strong>${esc(session.name)}</strong><span>Admin</span></div><div class="rt-avatar">${initials(session.name)}</div></div>
-        </header>
-        <div class="role-content" id="adminContent"><div class="rp-empty">Loading...</div></div>
-      </div>
-    </div>
-  `;
+  pageWrap.innerHTML = await renderTemplate('admin', {
+    title: esc(meta.label),
+    subtitle: esc(meta.sub),
+    userName: esc(session.name),
+    initials: initials(session.name)
+  });
+  setActiveNav(pageWrap, view);
 
   const content = $('#adminContent');
 
@@ -274,28 +219,19 @@ async function renderFacultyLayout() {
   $('#navbar').classList.add('hidden');
   pageWrap.classList.remove('hidden');
 
-  pageWrap.innerHTML = `
-    <div class="role-shell">
-      <aside class="role-sidebar">
-        <div class="role-side-brand"><strong>Faculty Portal</strong><span>College Department</span></div>
-        <nav class="role-nav">
-          <button class="role-nav-item ${window.currentView === 'dashboard' ? 'active' : ''}" onclick="window.setFacultyView('dashboard')">Dashboard</button>
-          <button class="role-nav-item ${window.currentView === 'progress' ? 'active' : ''}" onclick="window.setFacultyView('progress')">Check Students</button>
-        </nav>
-        <div class="role-side-foot"><button onclick="window.logout()">Sign out</button></div>
-      </aside>
-      <div class="role-main">
-        <header class="role-topbar">
-          <div><h1>${window.currentView ? window.currentView.toUpperCase() : 'DASHBOARD'}</h1><div class="rt-sub">Student Evaluation</div></div>
-          <div class="rt-user"><div class="rt-who"><strong>${esc(session.name)}</strong><span>Faculty</span></div><div class="rt-avatar">${initials(session.name)}</div></div>
-        </header>
-        <div class="role-content" id="facultyContent"><div class="rp-empty">Loading...</div></div>
-      </div>
-    </div>
-  `;
+  const view = window.currentView && FACULTY_VIEWS[window.currentView] ? window.currentView : 'dashboard';
+  window.currentView = view;
+  const meta = FACULTY_VIEWS[view];
+
+  pageWrap.innerHTML = await renderTemplate('faculty', {
+    title: esc(meta.label),
+    subtitle: esc(meta.sub),
+    userName: esc(session.name),
+    initials: initials(session.name)
+  });
+  setActiveNav(pageWrap, view);
 
   const content = $('#facultyContent');
-  const view = window.currentView || 'dashboard';
 
   if (view === 'dashboard') content.innerHTML = await renderFacultyDashboard();
   else if (view === 'progress') content.innerHTML = await renderFacultyProgress();
@@ -321,30 +257,19 @@ async function renderAccountingLayout() {
   $('#navbar').classList.add('hidden');
   pageWrap.classList.remove('hidden');
 
-  pageWrap.innerHTML = `
-    <div class="role-shell">
-      <aside class="role-sidebar">
-        <div class="role-side-brand"><strong>Accounting Dept</strong><span>Finance</span></div>
-        <nav class="role-nav">
-          <button class="role-nav-item ${window.currentView === 'dashboard' ? 'active' : ''}" onclick="window.setAccountingView('dashboard')">Dashboard</button>
-          <button class="role-nav-item ${window.currentView === 'logs' ? 'active' : ''}" onclick="window.setAccountingView('logs')">Payment Logs</button>
-          <button class="role-nav-item ${window.currentView === 'students' ? 'active' : ''}" onclick="window.setAccountingView('students')">Student Payments</button>
-          <button class="role-nav-item ${window.currentView === 'settings' ? 'active' : ''}" onclick="window.setAccountingView('settings')">Fee Settings</button>
-        </nav>
-        <div class="role-side-foot"><button onclick="window.logout()">Sign out</button></div>
-      </aside>
-      <div class="role-main">
-        <header class="role-topbar">
-          <div><h1>${window.currentView ? window.currentView.toUpperCase() : 'DASHBOARD'}</h1><div class="rt-sub">Manage student payments</div></div>
-          <div class="rt-user"><div class="rt-who"><strong>${esc(session.name)}</strong><span>Accounting</span></div><div class="rt-avatar">${initials(session.name)}</div></div>
-        </header>
-        <div class="role-content" id="accContent"><div class="rp-empty">Loading...</div></div>
-      </div>
-    </div>
-  `;
+  const view = window.currentView && ACCOUNTING_VIEWS[window.currentView] ? window.currentView : 'dashboard';
+  window.currentView = view;
+  const meta = ACCOUNTING_VIEWS[view];
+
+  pageWrap.innerHTML = await renderTemplate('accounting', {
+    title: esc(meta.label),
+    subtitle: esc(meta.sub),
+    userName: esc(session.name),
+    initials: initials(session.name)
+  });
+  setActiveNav(pageWrap, view);
 
   const content = $('#accContent');
-  const view = window.currentView || 'dashboard';
 
   if (view === 'dashboard') content.innerHTML = await renderAccountingDashboard();
   else if (view === 'logs') content.innerHTML = await renderAccountingLogs();
@@ -361,31 +286,19 @@ async function renderRegistrarLayout() {
   $('#navbar').classList.add('hidden');
   pageWrap.classList.remove('hidden');
 
-  pageWrap.innerHTML = `
-    <div class="role-shell">
-      <aside class="role-sidebar">
-        <div class="role-side-brand"><strong>Registrar Portal</strong><span>Records & Curriculum</span></div>
-        <nav class="role-nav">
-          <button class="role-nav-item ${window.currentView === 'dashboard' ? 'active' : ''}" onclick="window.setRegistrarView('dashboard')">Dashboard</button>
-          <button class="role-nav-item ${window.currentView === 'students' ? 'active' : ''}" onclick="window.setRegistrarView('students')">Student Management</button>
-          <button class="role-nav-item ${window.currentView === 'presets' ? 'active' : ''}" onclick="window.setRegistrarView('presets')">Preset Subjects</button>
-          <button class="role-nav-item ${window.currentView === 'prereqs' ? 'active' : ''}" onclick="window.setRegistrarView('prereqs')">Prerequisite Subjects</button>
-          <button class="role-nav-item ${window.currentView === 'courses' ? 'active' : ''}" onclick="window.setRegistrarView('courses')">Manage Subjects</button>
-        </nav>
-        <div class="role-side-foot"><button onclick="window.logout()">Sign out</button></div>
-      </aside>
-      <div class="role-main">
-        <header class="role-topbar">
-          <div><h1>${window.currentView ? window.currentView.toUpperCase() : 'DASHBOARD'}</h1><div class="rt-sub">Manage academic records</div></div>
-          <div class="rt-user"><div class="rt-who"><strong>${esc(session.name)}</strong><span>Registrar</span></div><div class="rt-avatar">${initials(session.name)}</div></div>
-        </header>
-        <div class="role-content" id="regContent"><div class="rp-empty">Loading...</div></div>
-      </div>
-    </div>
-  `;
+  const view = window.currentView && REGISTRAR_VIEWS[window.currentView] ? window.currentView : 'dashboard';
+  window.currentView = view;
+  const meta = REGISTRAR_VIEWS[view];
+
+  pageWrap.innerHTML = await renderTemplate('registrar', {
+    title: esc(meta.label),
+    subtitle: esc(meta.sub),
+    userName: esc(session.name),
+    initials: initials(session.name)
+  });
+  setActiveNav(pageWrap, view);
 
   const content = $('#regContent');
-  const view = window.currentView || 'dashboard';
 
   if (view === 'dashboard') content.innerHTML = await renderRegistrarDashboard();
   else if (view === 'students') content.innerHTML = await renderRegistrarStudents();

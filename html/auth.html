@@ -1,0 +1,42 @@
+<header class="auth-topbar">
+  <div class="auth-topbar-brand">
+    <img src="Images/ucc-logo.png" alt="Unida Christian Colleges" class="auth-logo">
+    <div class="auth-topbar-text">
+      <strong>Unida Christian Colleges</strong>
+      <span>Enrollment Portal</span>
+    </div>
+  </div>
+  <div class="auth-topbar-meta">Admissions &amp; Registrar</div>
+</header>
+
+<div class="auth-hero">
+  <div class="auth-hero-inner">
+    <div class="auth-card">
+      <div class="auth-form-head">
+        <h2>Sign in</h2>
+        <p>Use your school account to continue.</p>
+      </div>
+
+      <div class="auth-tabs">
+        <button class="auth-tab active" data-action="authTab" data-tab="login">Sign In</button>
+        <button class="auth-tab" data-action="authTab" data-tab="register">Register</button>
+      </div>
+
+      <form id="loginForm">
+        <div class="field"><label>Email</label><input type="email" name="email" autocomplete="email" placeholder="you@unida.edu.ph" required></div>
+        <div class="field"><label>Password</label><input type="password" name="password" autocomplete="current-password" placeholder="Enter your password" required></div>
+        <button class="btn btn-primary btn-block" type="submit">Sign In</button>
+      </form>
+
+      <form id="registerForm" class="hidden">
+        <div class="field"><label>Full Name</label><input type="text" name="name" autocomplete="name" placeholder="Juan Dela Cruz" required></div>
+        <div class="field"><label>Email</label><input type="email" name="email" autocomplete="email" placeholder="you@email.com" required></div>
+        <div class="field"><label>Password</label><input type="password" name="password" autocomplete="new-password" placeholder="At least 6 characters" required></div>
+        <button class="btn btn-primary btn-block" type="submit">Create Account</button>
+      </form>
+
+      <div class="auth-foot">New students can create an account with the <strong>Register</strong> tab.</div>
+    </div>
+  </div>
+  <div class="auth-hero-foot">Unida Christian Colleges · Admissions and Guidance Office</div>
+</div>

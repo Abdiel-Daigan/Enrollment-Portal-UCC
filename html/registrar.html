@@ -1,0 +1,20 @@
+<div class="role-shell">
+  <aside class="role-sidebar">
+    <div class="role-side-brand"><strong>Registrar Portal</strong><span>Records &amp; Curriculum</span></div>
+    <nav class="role-nav">
+      <button class="role-nav-item" data-nav-view="dashboard" onclick="window.setRegistrarView('dashboard')">Dashboard</button>
+      <button class="role-nav-item" data-nav-view="students" onclick="window.setRegistrarView('students')">Student Management</button>
+      <button class="role-nav-item" data-nav-view="presets" onclick="window.setRegistrarView('presets')">Preset Subjects</button>
+      <button class="role-nav-item" data-nav-view="prereqs" onclick="window.setRegistrarView('prereqs')">Prerequisite Subjects</button>
+      <button class="role-nav-item" data-nav-view="courses" onclick="window.setRegistrarView('courses')">Manage Subjects</button>
+    </nav>
+    <div class="role-side-foot"><button onclick="window.logout()">Sign out</button></div>
+  </aside>
+  <div class="role-main">
+    <header class="role-topbar">
+      <div><h1>{{title}}</h1><div class="rt-sub">{{subtitle}}</div></div>
+      <div class="rt-user"><div class="rt-who"><strong>{{userName}}</strong><span>Registrar</span></div><div class="rt-avatar">{{initials}}</div></div>
+    </header>
+    <div class="role-content" id="regContent"><div class="rp-empty">Loading...</div></div>
+  </div>
+</div>

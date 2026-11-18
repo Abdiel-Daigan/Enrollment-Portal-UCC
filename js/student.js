@@ -351,10 +351,6 @@ window.handleFileUpload = async (event, docId, docName) => {
   }
 };
 
-window.viewDocument = (url) => {
-  window.open(url, '_blank');
-};
-
 function compressImage(file) {
   return new Promise((resolve) => {
     const reader = new FileReader();

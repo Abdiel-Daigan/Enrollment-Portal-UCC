@@ -76,14 +76,14 @@ export async function renderFacultyDashboard() {
 }
 
 export async function renderFacultyProgress() {
-  const students = await supa('users', { match: { role: 'student' } });
+  const students = await supa('users', { match: { role: 'student' } }).catch(() => []);
   if (!students.length) return `<div class="rp-empty">No students found.</div>`;
 
-  const courses = await supa('courses');
-  const subjects = await supa('student_subjects');
-  const apps = await supa('applications');
-  const presets = await supa('presets');
-  const presetSubs = await supa('preset_subjects');
+  const courses = await supa('courses').catch(() => []);
+  const subjects = await supa('student_subjects').catch(() => []);
+  const apps = await supa('applications').catch(() => []);
+  const presets = await supa('presets').catch(() => []);
+  const presetSubs = await supa('preset_subjects').catch(() => []);
   // Prerequisite sequences are stored in the presets table with a marker name.
   const prereqSets = hydratePrereqSets(presets.map(decodePrereqSet).filter(Boolean), courses);
 

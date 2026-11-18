@@ -1,0 +1,19 @@
+<div class="role-shell">
+  <aside class="role-sidebar">
+    <div class="role-side-brand"><strong>Accounting Dept</strong><span>Finance</span></div>
+    <nav class="role-nav">
+      <button class="role-nav-item" data-nav-view="dashboard" onclick="window.setAccountingView('dashboard')">Dashboard</button>
+      <button class="role-nav-item" data-nav-view="logs" onclick="window.setAccountingView('logs')">Payment Logs</button>
+      <button class="role-nav-item" data-nav-view="students" onclick="window.setAccountingView('students')">Student Payments</button>
+      <button class="role-nav-item" data-nav-view="settings" onclick="window.setAccountingView('settings')">Fee Settings</button>
+    </nav>
+    <div class="role-side-foot"><button onclick="window.logout()">Sign out</button></div>
+  </aside>
+  <div class="role-main">
+    <header class="role-topbar">
+      <div><h1>{{title}}</h1><div class="rt-sub">{{subtitle}}</div></div>
+      <div class="rt-user"><div class="rt-who"><strong>{{userName}}</strong><span>Accounting</span></div><div class="rt-avatar">{{initials}}</div></div>
+    </header>
+    <div class="role-content" id="accContent"><div class="rp-empty">Loading...</div></div>
+  </div>
+</div>

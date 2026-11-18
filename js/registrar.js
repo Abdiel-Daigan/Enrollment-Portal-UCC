@@ -111,8 +111,8 @@ export function docsComplete(app) {
 
 // --- STUDENT MANAGEMENT ---
 export async function renderRegistrarStudents() {
-  const apps = await supa('applications');
-  const users = await supa('users');
+  const apps = await supa('applications').catch(() => []);
+  const users = await supa('users').catch(() => []);
   
   const searchQ = (window.regSearch || '').toLowerCase();
   const filterProg = window.regFilterProg || '';
@@ -232,9 +232,9 @@ export async function regManageStudentModal(userId, tab) {
   window.regModalTab = tab || 'documents';
   const activeTab = window.regModalTab;
 
-  const users = await supa('users', { match: { id: userId } });
+  const users = await supa('users', { match: { id: userId } }).catch(() => []);
   const u = users[0] || {};
-  const apps = await supa('applications', { match: { user_id: userId } });
+  const apps = await supa('applications', { match: { user_id: userId } }).catch(() => []);
   const app = apps[0] || {};
   const courses = await supa('courses').catch(() => []);
   const subjects = await supa('student_subjects', { match: { user_id: userId } }).catch(() => []);
@@ -315,38 +315,76 @@ export async function regManageStudentModal(userId, tab) {
     `;
   }).join('') : '<tr><td colspan="6" class="rp-empty">No subjects recorded for this student yet.</td></tr>';
 
-  const subjectsPane = `
-    <div class="rp-card" style="background:var(--mint-50); margin-bottom:18px;">
-      <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end;">
-        <div class="field" style="flex:1 1 180px; margin-bottom:0;">
-          <label>Course Code</label>
-          <input class="rp-input" id="reg_subject_code" placeholder="e.g. BSCS-101" oninput="this.value = this.value.toUpperCase(); window.regLookupCourseCode();">
-        </div>
-        <div class="field" style="flex:2 1 240px; margin-bottom:0;">
-          <label>Course Name</label>
-          <input class="rp-input" id="reg_subject_title" placeholder="Fills in automatically from the course code" readonly>
-        </div>
-        <div class="field" style="width:110px; margin-bottom:0;">
-          <label>Grade</label>
-          <input class="rp-input" id="reg_subject_grade" placeholder="e.g. 1.25">
-        </div>
-        <div class="field" style="width:150px; margin-bottom:0;">
-          <label>Remarks</label>
-          <select class="rp-input" id="reg_subject_remarks">
-            <option value="Passed">Passed</option>
-            <option value="Dropped">Dropped</option>
-          </select>
-        </div>
-        <button type="button" class="rp-btn rp-btn-primary" onclick="window.regAddStudentSubject(${userId})">Add Subject</button>
-      </div>
-      <div id="regSubjectError" class="rp-hint" style="color:var(--danger); display:none; margin-top:10px;"></div>
-    </div>
+  // The document that records the subjects this student already took. Only
+  // some application types bring one: Form 138 for freshmen and the
+  // Transcript of Records for transferees. Returnees have none, so no panel
+  // is shown at all for them.
+  const SUBJECT_RECORD_DOC = { freshman: 'form138', transferee: 'tor' };
+  const subjectRecordDocId = SUBJECT_RECORD_DOC[app.doc_type] || null;
+  const subjectRecordDoc = subjectRecordDocId ? docs.find(d => d.id === subjectRecordDocId) : null;
+  const subjectRecordUrl = subjectRecordDocId ? uploaded[subjectRecordDocId] : null;
 
-    <div class="rp-table-wrap">
-      <table class="rp-table">
-        <thead><tr><th>Code</th><th>Course Name</th><th style="text-align:center">Units</th><th>Grade</th><th>Remarks</th><th style="text-align:right">Action</th></tr></thead>
-        <tbody>${subjectRows}</tbody>
-      </table>
+  // No document on file: never show an empty viewer, only the missing-file
+  // notice so the staff member knows why there is nothing to reference.
+  const subjectDocPane = !subjectRecordDoc ? '' : (subjectRecordUrl
+    ? `
+      <aside class="reg-subject-doc">
+        <div class="rp-card-head">
+          <h3>${esc(subjectRecordDoc.name)}</h3>
+          <button type="button" class="rp-btn rp-btn-ghost rp-btn-sm" data-doc-url="${esc(subjectRecordUrl)}" onclick="window.viewDocument(this.dataset.docUrl)">Open in new tab</button>
+        </div>
+        ${documentPreview(subjectRecordUrl, subjectRecordDoc.name)}
+        <p class="rp-hint" style="margin-top:10px;">Reference for the subjects this student has already taken.</p>
+      </aside>
+    `
+    : `
+      <aside class="reg-subject-doc">
+        <div class="rp-notice red" style="margin-bottom:0;">
+          <div>
+            <strong>${esc(subjectRecordDoc.name)} has not been uploaded yet.</strong>
+            <div class="rp-hint" style="color:inherit;">There is no file to show as a reference for the subjects this student has taken.</div>
+          </div>
+        </div>
+      </aside>
+    `);
+
+  const subjectsPane = `
+    <div class="reg-subjects-layout${subjectDocPane ? ' has-doc' : ''}">
+      <div class="reg-subjects-main">
+        <div class="rp-card" style="background:var(--mint-50); margin-bottom:18px;">
+          <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end;">
+            <div class="field" style="flex:1 1 180px; margin-bottom:0;">
+              <label>Course Code</label>
+              <input class="rp-input" id="reg_subject_code" placeholder="e.g. BSCS-101" oninput="this.value = this.value.toUpperCase(); window.regLookupCourseCode();">
+            </div>
+            <div class="field" style="flex:2 1 240px; margin-bottom:0;">
+              <label>Course Name</label>
+              <input class="rp-input" id="reg_subject_title" placeholder="Fills in automatically from the course code" readonly>
+            </div>
+            <div class="field" style="width:110px; margin-bottom:0;">
+              <label>Grade</label>
+              <input class="rp-input" id="reg_subject_grade" placeholder="e.g. 1.25">
+            </div>
+            <div class="field" style="width:150px; margin-bottom:0;">
+              <label>Remarks</label>
+              <select class="rp-input" id="reg_subject_remarks">
+                <option value="Passed">Passed</option>
+                <option value="Dropped">Dropped</option>
+              </select>
+            </div>
+            <button type="button" class="rp-btn rp-btn-primary" onclick="window.regAddStudentSubject(${userId})">Add Subject</button>
+          </div>
+          <div id="regSubjectError" class="rp-hint" style="color:var(--danger); display:none; margin-top:10px;"></div>
+        </div>
+
+        <div class="rp-table-wrap">
+          <table class="rp-table">
+            <thead><tr><th>Code</th><th>Course Name</th><th style="text-align:center">Units</th><th>Grade</th><th>Remarks</th><th style="text-align:right">Action</th></tr></thead>
+            <tbody>${subjectRows}</tbody>
+          </table>
+        </div>
+      </div>
+      ${subjectDocPane}
     </div>
   `;
 
@@ -584,15 +622,24 @@ window.regDeleteStudentSubject = async (rowId, userId) => {
   }
 };
 
-window.viewDocument = (url) => {
-  window.open(url, '_blank');
-};
+/* Previews an uploaded reference document inline (PDF or image).
+   window.viewDocument is defined once in utils.js. */
+function documentPreview(url, name) {
+  const path = String(url).split('?')[0].toLowerCase();
+  if (/\.(png|jpe?g|gif|webp|bmp|svg)$/.test(path)) {
+    return `<div class="reg-doc-preview"><img src="${esc(url)}" alt="${esc(name)}"></div>`;
+  }
+  if (/\.pdf$/.test(path)) {
+    return `<div class="reg-doc-preview"><iframe src="${esc(url)}" title="${esc(name)}"></iframe></div>`;
+  }
+  return `<div class="reg-doc-preview reg-doc-preview-file"><a class="rp-btn rp-btn-primary" href="${esc(url)}" target="_blank" rel="noopener">Open ${esc(name)}</a></div>`;
+}
 
 // --- REGISTRAR PRESETS ---
 export async function renderRegistrarPresets() {
   // Rows that hold prerequisite sequences live in the same table and are hidden here.
   const presets = (await supa('presets')).filter(p => !isPrereqRow(p));
-  const presetSubs = await supa('preset_subjects');
+  const presetSubs = await supa('preset_subjects').catch(() => []);
   const filterProg = window.regPresetFilterProg || 'all';
   const filterYear = window.regPresetFilterYear || 'all';
 
@@ -651,7 +698,7 @@ export async function renderRegistrarPresets() {
 
 // --- REGISTRAR COURSES ---
 export async function renderRegistrarCourses() {
-  const courses = await supa('courses');
+  const courses = await supa('courses').catch(() => []);
   const filterProg = window.regCourseFilterProg || 'all';
   const filteredCourses = courses.filter(c => filterProg === 'all' || String(c.program_id) === String(filterProg));
 
@@ -743,10 +790,10 @@ export async function regEditPresetModal(presetId) {
   let currentSubjects = [];
 
   if (!isNew) {
-    const pRes = await supa('presets', { match: { id: presetId } });
-    preset = pRes[0];
-    const psRes = await supa('preset_subjects', { match: { preset_id: presetId } });
-    const courses = await supa('courses');
+    const pRes = await supa('presets', { match: { id: presetId } }).catch(() => []);
+    preset = pRes[0] || preset;
+    const psRes = await supa('preset_subjects', { match: { preset_id: presetId } }).catch(() => []);
+    const courses = await supa('courses').catch(() => []);
     
     currentSubjects = psRes.map(ps => {
       const c = courses.find(x => String(x.id) === String(ps.course_id));
@@ -845,8 +892,9 @@ export async function regEditPresetModal(presetId) {
 }
 
 export async function regEditCourseModal(courseId) {
-  const courses = await supa('courses', { match: { id: courseId } });
+  const courses = await supa('courses', { match: { id: courseId } }).catch(() => []);
   const c = courses[0];
+  if (!c) return toast('This subject could not be loaded.', 'error');
   
   let startTime = '';
   let endTime = '';
@@ -917,8 +965,8 @@ window.regAddPresetSubjectTemp = async (presetId) => {
   
   if (!code) return;
   
-  const courses = await supa('courses');
-  const course = courses.find(c => c.code.toUpperCase() === code);
+  const courses = await supa('courses').catch(() => []);
+  const course = courses.find(c => String(c.code || '').toUpperCase() === code);
   
   if (!course) {
     errDiv.textContent = "Course code does not exist!";
@@ -1039,7 +1087,7 @@ export async function regEditPrereqModal(setId) {
 
   let set = { id: null, title: '', programId: '1', courseIds: [] };
   if (!isNew) {
-    const rows = await supa('presets', { match: { id: setId } });
+    const rows = await supa('presets', { match: { id: setId } }).catch(() => []);
     const decoded = decodePrereqSet(rows[0]);
     if (decoded) set = decoded;
   }
