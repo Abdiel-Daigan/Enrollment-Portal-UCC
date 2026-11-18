@@ -2,6 +2,8 @@ import { esc, toast } from './utils.js';
 import { supa, uploadFile } from './api.js';
 import { session } from './auth.js';
 import { getSelectablePrograms, programLabel } from './catalog.js';
+import { docsForType, docsComplete, docsUploaded, missingRequiredDocs } from './documents.js';
+import { applicationStatus } from './status.js';
 
 // Helper for the timetable
 function parseTimeToMin(t) {
@@ -29,6 +31,10 @@ export async function renderStudentDashboard() {
     if (app.documents && Object.keys(app.documents).length >= 3) completed = 4;
     if (app.submitted) completed = 5;
   }
+
+  const statusLabel = app ? applicationStatus(app) : 'In Progress';
+  const confirmed = app ? docsComplete(app) : false;
+  const confirmable = app ? docsUploaded(app) : false;
 
   const steps = [
     { id: 1, label: 'Personal Information', icon: '1' },
@@ -77,15 +83,31 @@ export async function renderStudentDashboard() {
       ${app && app.submitted && !app.returned ? `
         <div class="continue-bar" style="flex-direction: column; align-items: flex-start; gap: 10px;">
           <div style="display:flex; gap:10px; align-items:center;">
-            <div class="cb-icon" style="background: ${app.status === 'Approved' ? 'var(--mint-600)' : 'var(--gold-500)'};">✓</div>
+            <div class="cb-icon" style="background: ${statusLabel === 'Enrolled' || statusLabel === 'Enrollee' ? 'var(--mint-600)' : 'var(--gold-500)'};">✓</div>
             <div class="cb-text">
-              <h4>Application Status: ${esc(app.status || 'Pending Review')}</h4>
+              <h4>Status: ${esc(statusLabel)}</h4>
               <p>Reference: <strong>${esc(app.reference || '—')}</strong></p>
             </div>
           </div>
-          <div class="rp-notice info" style="margin-bottom:0; width: 100%;">
-            <span>Please wait for the Registrar to verify your documents. Once verified, the Faculty will assign your subjects.</span>
-          </div>
+          ${!confirmed ? `
+            <div class="rp-notice info" style="margin-bottom:0; width: 100%;">
+              ${confirmable ? `
+                <div>
+                  <strong>All documents are complete.</strong>
+                  <div class="rp-hint">Confirm them so the Faculty can assign your subjects. Confirming is final — the Registrar can no longer return the application.</div>
+                  <button type="button" class="btn btn-primary btn-sm" style="margin-top:10px;" data-action="confirmDocuments">Confirm All Documents</button>
+                </div>
+              ` : `
+                <span>Upload your remaining documents in the Documents tab, then confirm them so the Faculty can assign your subjects.</span>
+              `}
+            </div>
+          ` : `
+            <div class="rp-notice mint" style="margin-bottom:0; width: 100%;">
+              <span>${statusLabel === 'Enrolled'
+                ? 'Your documents are confirmed and your fees are paid. You are officially enrolled.'
+                : 'Your documents are confirmed. Pay your tuition once the Faculty has assigned your subjects to become officially enrolled.'}</span>
+            </div>
+          `}
         </div>
       ` : (app && app.returned ? '' : `
         <div class="continue-bar">
@@ -110,7 +132,20 @@ export async function renderApply() {
 
   let html = '';
   if (app.submitted && !app.returned) {
-    html = `<div class="success-wrap"><div class="success-check">✓</div><h2>Application Submitted!</h2><p>Wait for the Registrar to verify your documents.</p></div>`;
+    const confirmed = docsComplete(app);
+    const confirmable = docsUploaded(app);
+    html = `
+      <div class="success-wrap">
+        <div class="success-check">✓</div>
+        <h2>Application Submitted!</h2>
+        <p>${confirmed
+          ? 'Your documents are confirmed. The Faculty can now assign your subjects.'
+          : confirmable
+            ? 'All your documents are complete. Confirm them so the Faculty can assign your subjects.'
+            : 'Upload your remaining documents, then confirm them so the Faculty can assign your subjects.'}</p>
+        ${!confirmed && confirmable ? `<button type="button" class="btn btn-primary" style="margin-top:16px;" data-action="confirmDocuments">Confirm All Documents</button>` : ''}
+      </div>
+    `;
   } else {
     switch(step) {
       case 1: html = renderStepPersonal(app); break;
@@ -231,28 +266,6 @@ function renderStepProgram(app) {
   `;
 }
 
-const DOC_TYPES = {
-  freshman: [
-    { id: 'form138', name: 'Form 138', required: true },
-    { id: 'psa', name: 'PSA Birth Certificate', required: true },
-    { id: 'idpic', name: 'ID Photo', required: true },
-    { id: 'goodmoral', name: 'Good Moral Certificate', required: true },
-    { id: 'exam', name: 'Entrance Exam Result', required: true }
-  ],
-  transferee: [
-    { id: 'transfer_cred', name: 'Transfer Credentials / Honorable Dismissal', required: true },
-    { id: 'tor', name: 'Transcript of Records', required: true },
-    { id: 'goodmoral_prev', name: 'Good Moral Certificate (Previous School)', required: true },
-    { id: 'psa', name: 'PSA Birth Certificate', required: true },
-    { id: 'idpic', name: 'ID Photo', required: true }
-  ],
-  returnee: [
-    { id: 'readmission', name: 'Readmission Form', required: true },
-    { id: 'clearance', name: 'Clearance from Last Term', required: true },
-    { id: 'approval', name: 'School Approval Document', required: false }
-  ]
-};
-
 function renderStepDocuments(app) {
   if (!app.doc_type) {
     return `
@@ -278,7 +291,7 @@ function renderStepDocuments(app) {
     `;
   }
 
-  const docs = DOC_TYPES[app.doc_type] || [];
+  const docs = docsForType(app.doc_type);
   const uploaded = app.documents || {};
 
   return `
@@ -331,13 +344,16 @@ window.handleFileUpload = async (event, docId, docName) => {
     const existing = await supa('applications', { match: { user_id: user.userId } });
     const app = existing[0] || {};
     const docs = app.documents || {};
-    
+    const docStatus = app.doc_status || {};
+
     docs[docId] = publicUrl;
+    // Uploading a document is all it takes: the file is complete immediately.
+    docStatus[docId] = 'Complete';
 
     await supa('applications', {
       method: 'PATCH',
       match: { user_id: user.userId },
-      body: { documents: docs }
+      body: { documents: docs, doc_status: docStatus }
     });
 
     toast(`${docName} uploaded successfully.`);
@@ -395,34 +411,41 @@ function renderStepReview(app) {
 
 export async function renderStudentDocumentsTab(app) {
   if (!app.doc_type) return `<div class="rp-empty">No documents required.</div>`;
-  
-  const docs = DOC_TYPES[app.doc_type] || [];
+
+  const docs = docsForType(app.doc_type);
   const uploaded = app.documents || {};
   const docStatus = app.doc_status || {};
+  const missing = missingRequiredDocs(app);
+  const confirmed = docsComplete(app);
 
   return `
     <div class="progress-card">
       <h3>Document Tracking</h3>
-      <p class="rp-hint" style="margin-bottom: 20px;">Please complete the follow-up documents below. Required documents must be verified by the Registrar.</p>
-      
+      <p class="rp-hint" style="margin-bottom: 20px;">
+        A document is complete as soon as you upload it. When every required document is complete,
+        confirm the whole set so the Faculty can assign your subjects.
+      </p>
+
       <div class="rp-table-wrap">
         <table class="rp-table doc-table">
           <thead><tr><th>Document Name</th><th>Requirement</th><th>Status</th><th style="text-align:right">Action</th></tr></thead>
           <tbody>
             ${docs.map(d => {
-              const isUploaded = uploaded[d.id];
-              const status = docStatus[d.id] || 'Pending';
+              const file = uploaded[d.id];
+              const status = file ? (docStatus[d.id] || 'Complete') : 'Missing';
               return `
                 <tr>
                   <td><strong>${esc(d.name)}</strong></td>
                   <td data-label="Requirement">${d.required ? '<span class="rp-badge red">Required</span>' : '<span class="rp-badge grey">Follow-up</span>'}</td>
                   <td data-label="Status">
-                    ${isUploaded 
-                      ? (status === 'Complete' ? `<span class="rp-badge green">Verified</span>` : `<span class="rp-badge gold">Submitted</span>`)
-                      : `<span class="rp-badge red">Missing</span>`}
+                    ${!file
+                      ? `<span class="rp-badge red">Missing</span>`
+                      : status === 'Complete'
+                        ? `<span class="rp-badge green">Complete</span>`
+                        : `<span class="rp-badge gold">Needs Review</span>`}
                   </td>
                   <td style="text-align:right" data-label="Action">
-                    ${isUploaded ? `<button class="rp-btn rp-btn-ghost rp-btn-sm" onclick="window.viewDocument('${uploaded[d.id]}')">View File</button>` : ''}
+                    ${file ? `<button class="rp-btn rp-btn-ghost rp-btn-sm" data-doc-url="${esc(file)}" onclick="window.viewDocument(this.dataset.docUrl)">View File</button>` : ''}
                   </td>
                 </tr>
               `;
@@ -430,6 +453,32 @@ export async function renderStudentDocumentsTab(app) {
           </tbody>
         </table>
       </div>
+    </div>
+
+    <div class="progress-card">
+      ${confirmed ? `
+        <div class="rp-card-head"><h3>Documents Confirmed</h3></div>
+        <div class="rp-notice mint" style="margin-bottom:0;">
+          <span>You confirmed these documents. ${applicationStatus(app) === 'Enrolled'
+            ? 'Your fees are paid and you are officially enrolled.'
+            : 'Once the Faculty assigns your subjects and you pay your tuition, you are officially enrolled.'}</span>
+        </div>
+      ` : missing.length ? `
+        <div class="rp-card-head"><h3>Confirm All Documents</h3></div>
+        <div class="rp-notice info" style="margin-bottom:0;">
+          <span>Upload the remaining required document(s) first: ${missing.map(id => {
+            const d = docs.find(x => x.id === id);
+            return esc(d ? d.name : id);
+          }).join(', ')}.</span>
+        </div>
+      ` : `
+        <div class="rp-card-head"><h3>Confirm All Documents</h3></div>
+        <p class="rp-hint">
+          Every required document is complete. Press the button below to confirm them.
+          Confirming is final: the application can no longer be returned, and the Faculty can start assigning your subjects.
+        </p>
+        <button type="button" class="btn btn-primary" style="margin-top:14px;" data-action="confirmDocuments">Confirm All Documents</button>
+      `}
     </div>
   `;
 }

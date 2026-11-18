@@ -21,6 +21,7 @@ import {
 } from './registrar.js';
 import { decodePrereqSet, hydratePrereqSets, encodePrereqName, evaluatePrerequisites, missingLabel } from './prereqs.js';
 import { loadCatalog, saveProgram, deleteProgram, saveCoursePrograms, saveUnitLimit, deleteUnitLimit, findUnitLimit, SEMESTERS } from './catalog.js';
+import { docsForType, docsComplete, docsUploaded } from './documents.js';
 import { renderTemplate, preloadTemplates, setActiveNav } from './templates.js';
 
 loadSession();
@@ -74,6 +75,9 @@ export async function renderAll() {
       { id: 'dashboard', label: 'Dashboard' },
       { id: 'apply', label: 'Application' }
     ];
+    // A submitted application needs its Documents tab so the student can
+    // confirm the uploaded documents before the Faculty sees the student.
+    if (app.submitted && !isReturned) navItems.push({ id: 'documents', label: 'Documents' });
   } else {
     if (hasPaid) {
       navItems = [
@@ -121,7 +125,14 @@ window.payTuition = async (type, total, currentPaid) => {
     const newPaid = Number(currentPaid) + Number(amountToAdd);
     const refNo = 'PAY-ONL-' + Date.now().toString().slice(-6);
 
-    await supa('applications', { method: 'PATCH', match: { user_id: session.userId }, body: { amount_paid: newPaid } });
+    // Paying after the documents were confirmed makes the student enrolled.
+    const apps = await supa('applications', { match: { user_id: session.userId } }).catch(() => []);
+    const confirmed = docsComplete(apps[0]);
+    await supa('applications', {
+      method: 'PATCH',
+      match: { user_id: session.userId },
+      body: confirmed ? { amount_paid: newPaid, status: 'Enrolled' } : { amount_paid: newPaid }
+    });
 
     await supa('payment_logs', {
       method: 'POST',
@@ -545,6 +556,40 @@ document.addEventListener('click', async (e) => {
     await supa('applications', { method: 'PATCH', match: { user_id: session.userId }, body: { submitted: true, returned: false, reference: 'UCC-' + Date.now().toString().slice(-8), status: 'Pending Review' } });
     toast('Application submitted successfully!');
     window.currentView = 'dashboard'; renderAll(); return;
+  }
+
+  if (action === 'confirmDocuments') {
+    const apps = await supa('applications', { match: { user_id: session.userId } }).catch(() => []);
+    const app = apps[0];
+
+    if (!app || !app.submitted) return toast('Submit your application before confirming your documents.', 'error');
+    if (docsComplete(app)) return toast('Your documents are already confirmed.');
+    if (!docsUploaded(app)) return toast('Upload every required document before confirming.', 'error');
+
+    // Every uploaded required document is complete; the confirmation is what
+    // lets the Faculty see the student.
+    const docStatus = app.doc_status || {};
+    docsForType(app.doc_type).filter(d => d.required).forEach(d => {
+      if (app.documents && app.documents[d.id]) docStatus[d.id] = 'Complete';
+    });
+
+    try {
+      await supa('applications', {
+        method: 'PATCH',
+        match: { user_id: session.userId },
+        body: {
+          doc_status: docStatus,
+          documents_verified: true,
+          status: Number(app.amount_paid || 0) > 0 ? 'Enrolled' : 'Enrollee'
+        }
+      });
+      toast('Documents confirmed. The Faculty can now assign your subjects.');
+      renderAll();
+    } catch (err) {
+      console.error(err);
+      toast('Could not confirm your documents.', 'error');
+    }
+    return;
   }
 
   if (action === 'facultyManageStudent') {
@@ -1026,7 +1071,14 @@ document.addEventListener('submit', async (e) => {
       const newPaid = currentPaid + amount;
       const refNo = 'PAY-ACC-' + Date.now().toString().slice(-6);
 
-      await supa('applications', { method: 'PATCH', match: { user_id: userId }, body: { amount_paid: newPaid } });
+      // A payment recorded after the documents were confirmed enrols the student.
+      const studentApps = await supa('applications', { match: { user_id: userId } }).catch(() => []);
+      const confirmed = docsComplete(studentApps[0]);
+      await supa('applications', {
+        method: 'PATCH',
+        match: { user_id: userId },
+        body: confirmed ? { amount_paid: newPaid, status: 'Enrolled' } : { amount_paid: newPaid }
+      });
 
       await supa('payment_logs', {
         method: 'POST',

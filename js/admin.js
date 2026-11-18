@@ -1,6 +1,7 @@
 import { esc, isHistorySubject } from './utils.js';
 import { supa } from './api.js';
-import { docsComplete } from './registrar.js';
+import { docsComplete } from './documents.js';
+import { applicationStatus, isEnrolled } from './status.js';
 import { decodePrereqSet } from './prereqs.js';
 import { reportCard } from './report.js';
 import { isMetaRow, getPrograms, programLabel } from './catalog.js';
@@ -19,7 +20,7 @@ export async function renderAdminDashboard() {
   const prereqSets = presetRows.map(decodePrereqSet).filter(Boolean);
   const submitted = apps.filter(a => a.submitted && !a.returned);
   const verified = submitted.filter(docsComplete).length;
-  const enrolled = apps.filter(a => a.status === 'Approved').length;
+  const enrolled = apps.filter(isEnrolled).length;
   const verifiedStudentIds = new Set(submitted.filter(docsComplete).map(a => String(a.user_id)));
   const withSubjects = new Set(subjectRows.filter(s => !isHistorySubject(s)).map(s => String(s.user_id)));
   const loadedUnits = subjectRows
@@ -41,7 +42,7 @@ export async function renderAdminDashboard() {
       ofProgram.length,
       ofProgram.filter(a => a.submitted && !a.returned).length,
       ofProgram.filter(docsComplete).length,
-      ofProgram.filter(a => a.status === 'Approved').length
+      ofProgram.filter(isEnrolled).length
     ];
   });
 
@@ -59,8 +60,8 @@ export async function renderAdminDashboard() {
       u.student_id || '-',
       programLabel(pr.preferred, 'Not set'),
       pr.year_level ? 'Year ' + pr.year_level : '-',
-      app.status === 'Approved' ? 'Enrolled' : (app.submitted ? 'Applicant' : 'In Progress'),
-      app.doc_type ? (docsComplete(app) ? 'Complete' : 'Incomplete') : 'No checklist',
+      applicationStatus(app),
+      app.doc_type ? (docsComplete(app) ? 'Confirmed' : 'Not confirmed') : 'No checklist',
       load.length,
       units,
       Number(app.amount_paid || 0).toFixed(2)
@@ -86,7 +87,7 @@ export async function renderAdminDashboard() {
     <div class="rp-grid-4">
       <div class="rp-card rp-stat"><div class="ic">ST</div><div><div class="val">${students.length}</div><div class="lbl">Total Students</div></div></div>
       <div class="rp-card rp-stat gold"><div class="ic">SA</div><div><div class="val">${submitted.length}</div><div class="lbl">Submitted Applications</div></div></div>
-      <div class="rp-card rp-stat"><div class="ic">DV</div><div><div class="val">${verified}</div><div class="lbl">Documents Verified</div></div></div>
+      <div class="rp-card rp-stat"><div class="ic">DV</div><div><div class="val">${verified}</div><div class="lbl">Documents Confirmed</div></div></div>
       <div class="rp-card rp-stat gold"><div class="ic">EN</div><div><div class="val">${enrolled}</div><div class="lbl">Officially Enrolled</div></div></div>
     </div>
 
@@ -113,7 +114,7 @@ export async function renderAdminDashboard() {
         <div class="rp-card-head"><h3>System Totals</h3></div>
         <div class="rp-mini-grid">
           <div><span>Units on student loads</span><strong>${loadedUnits}</strong></div>
-          <div><span>Students verified and waiting for subjects</span><strong>${verifiedStudentIds.size}</strong></div>
+          <div><span>Students with confirmed documents waiting for subjects</span><strong>${verifiedStudentIds.size}</strong></div>
           <div><span>Payments collected</span><strong>PHP ${collected.toLocaleString('en-PH', { minimumFractionDigits: 2 })}</strong></div>
           <div><span>Payment transactions</span><strong>${logRows.length}</strong></div>
         </div>

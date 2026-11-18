@@ -2,6 +2,8 @@ import { esc, toast } from './utils.js';
 import { supa } from './api.js';
 import { decodePrereqSet, hydratePrereqSets, encodePrereqName } from './prereqs.js';
 import { reportCard } from './report.js';
+import { DOC_TYPES, docsComplete } from './documents.js';
+import { applicationStatus, statusTone, isEnrolled } from './status.js';
 import {
   isMetaRow,
   getPrograms,
@@ -34,7 +36,7 @@ export async function renderRegistrarDashboard() {
   const presets = presetRows.filter(p => !isMetaRow(p));
   const prereqSets = presetRows.map(decodePrereqSet).filter(Boolean);
   const submitted = apps.filter(a => a.submitted && !a.returned);
-  const enrolled = apps.filter(a => a.status === 'Approved').length;
+  const enrolled = apps.filter(isEnrolled).length;
   const docsPending = submitted.filter(a => !docsComplete(a)).length;
   const verified = submitted.length - docsPending;
   const collected = logRows.reduce((sum, l) => sum + Number(l.amount || 0), 0);
@@ -49,7 +51,7 @@ export async function renderRegistrarDashboard() {
       p.code,
       ofProgram.length,
       ofProgram.filter(a => a.submitted && !a.returned).length,
-      ofProgram.filter(a => a.status === 'Approved').length
+      ofProgram.filter(isEnrolled).length
     ];
   });
 
@@ -63,8 +65,8 @@ export async function renderRegistrarDashboard() {
       u.student_id || '-',
       programLabel(pr.preferred, 'Not set'),
       pr.year_level ? 'Year ' + pr.year_level : '-',
-      app.status === 'Approved' ? 'Enrolled' : (app.submitted ? 'Applicant' : 'In Progress'),
-      app.doc_type ? (docsComplete(app) ? 'Complete' : 'Incomplete') : 'No checklist',
+      applicationStatus(app),
+      app.doc_type ? (docsComplete(app) ? 'Confirmed' : 'Not confirmed') : 'No checklist',
       load.length,
       Number(app.amount_paid || 0).toFixed(2)
     ];
@@ -75,14 +77,14 @@ export async function renderRegistrarDashboard() {
       <div class="rp-card rp-stat"><div class="ic">ST</div><div><div class="val">${students.length}</div><div class="lbl">Total Students</div></div></div>
       <div class="rp-card rp-stat gold"><div class="ic">PA</div><div><div class="val">${submitted.length}</div><div class="lbl">Pending Applicants</div></div></div>
       <div class="rp-card rp-stat"><div class="ic">EN</div><div><div class="val">${enrolled}</div><div class="lbl">Officially Enrolled</div></div></div>
-      <div class="rp-card rp-stat gold"><div class="ic">DC</div><div><div class="val">${docsPending}</div><div class="lbl">Documents Awaiting Verification</div></div></div>
+      <div class="rp-card rp-stat gold"><div class="ic">DC</div><div><div class="val">${docsPending}</div><div class="lbl">Documents Awaiting Confirmation</div></div></div>
     </div>
 
     <div class="rp-grid-4">
       <div class="rp-card rp-stat"><div class="ic">SB</div><div><div class="val">${courses.length}</div><div class="lbl">Total Subjects</div></div></div>
       <div class="rp-card rp-stat gold"><div class="ic">PR</div><div><div class="val">${presets.length}</div><div class="lbl">Subject Presets</div></div></div>
       <div class="rp-card rp-stat"><div class="ic">PQ</div><div><div class="val">${prereqSets.length}</div><div class="lbl">Prerequisite Sequences</div></div></div>
-      <div class="rp-card rp-stat gold"><div class="ic">VR</div><div><div class="val">${verified}</div><div class="lbl">Verified Applications</div></div></div>
+      <div class="rp-card rp-stat gold"><div class="ic">VR</div><div><div class="val">${verified}</div><div class="lbl">Confirmed Applications</div></div></div>
     </div>
 
     <div class="rp-grid-2">
@@ -115,14 +117,6 @@ export async function renderRegistrarDashboard() {
   `;
 }
 
-// A document checklist is complete when every required document is verified.
-export function docsComplete(app) {
-  const docs = DOC_TYPES[app && app.doc_type];
-  if (!docs) return false;
-  const status = (app && app.doc_status) || {};
-  return docs.filter(d => d.required).every(d => status[d.id] === 'Complete');
-}
-
 // --- STUDENT MANAGEMENT ---
 export async function renderRegistrarStudents() {
   const apps = await supa('applications').catch(() => []);
@@ -145,9 +139,11 @@ export async function renderRegistrarStudents() {
     const progMatch = filterProg ? String(pr.preferred) === String(filterProg) : true;
     const yearMatch = filterYear ? String(pr.year_level) === String(filterYear) : true;
     
+    const statusLabel = applicationStatus(app);
     let statusMatch = true;
-    if (filterStatus === 'enrolled') statusMatch = app.status === 'Approved';
-    else if (filterStatus === 'applicant') statusMatch = !!app.submitted && app.status !== 'Approved';
+    if (filterStatus === 'enrolled') statusMatch = statusLabel === 'Enrolled';
+    else if (filterStatus === 'enrollee') statusMatch = statusLabel === 'Enrollee';
+    else if (filterStatus === 'applicant') statusMatch = statusLabel === 'Applicant';
 
     return nameMatch && progMatch && yearMatch && statusMatch;
   });
@@ -177,7 +173,8 @@ export async function renderRegistrarStudents() {
       <div style="width: 160px;">
         <select class="rp-input" data-change="regFilterStatus">
           <option value="">All Statuses</option>
-          <option value="applicant" ${filterStatus === 'applicant' ? 'selected' : ''}>Applicant (Unenrolled)</option>
+          <option value="applicant" ${filterStatus === 'applicant' ? 'selected' : ''}>Applicant (Documents Not Confirmed)</option>
+          <option value="enrollee" ${filterStatus === 'enrollee' ? 'selected' : ''}>Enrollee (Confirmed, Unpaid)</option>
           <option value="enrolled" ${filterStatus === 'enrolled' ? 'selected' : ''}>Enrolled</option>
         </select>
       </div>
@@ -192,16 +189,15 @@ export async function renderRegistrarStudents() {
             let pr = app.program || {};
             if (typeof pr === 'string') { try { pr = JSON.parse(pr); } catch(e){} }
             const progName = programLabel(pr.preferred);
-            
+            const statusLabel = applicationStatus(app);
+
             return `
               <tr>
                 <td><strong>${esc(u.name)}</strong></td>
                 <td>${esc(u.student_id || '—')}</td>
                 <td><span class="rp-badge green">${progName}</span></td>
                 <td>
-                  <span class="rp-badge ${app.status === 'Approved' ? 'green' : 'gold'}">
-                    ${app.status === 'Approved' ? 'Enrolled' : (app.submitted ? 'Applicant' : 'In Progress')}
-                  </span>
+                  <span class="rp-badge ${statusTone(statusLabel)}">${esc(statusLabel)}</span>
                 </td>
                 <td style="text-align:right">
                   <button class="rp-btn rp-btn-primary rp-btn-sm" data-action="regManageStudent" data-id="${app.user_id}">Manage</button>
@@ -214,28 +210,6 @@ export async function renderRegistrarStudents() {
     </div>
   `;
 }
-
-const DOC_TYPES = {
-  freshman: [
-    { id: 'form138', name: 'Form 138', required: true },
-    { id: 'psa', name: 'PSA Birth Certificate', required: true },
-    { id: 'idpic', name: 'ID Photo', required: true },
-    { id: 'goodmoral', name: 'Good Moral Certificate', required: true },
-    { id: 'exam', name: 'Entrance Exam Result', required: true }
-  ],
-  transferee: [
-    { id: 'transfer_cred', name: 'Transfer Credentials / Honorable Dismissal', required: true },
-    { id: 'tor', name: 'Transcript of Records', required: true },
-    { id: 'goodmoral_prev', name: 'Good Moral Certificate (Previous School)', required: true },
-    { id: 'psa', name: 'PSA Birth Certificate', required: true },
-    { id: 'idpic', name: 'ID Photo', required: true }
-  ],
-  returnee: [
-    { id: 'readmission', name: 'Readmission Form', required: true },
-    { id: 'clearance', name: 'Clearance from Last Term', required: true },
-    { id: 'approval', name: 'School Approval Document', required: false }
-  ]
-};
 
 const peso = (n) => Number(n || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 });
 
@@ -288,6 +262,8 @@ export async function regManageStudentModal(userId, tab) {
   }).join('') : '<tr><td colspan="3" class="rp-empty">No document checklist recorded for this application yet.</td></tr>';
 
   const documentsPane = `
+    <p class="rp-hint" style="margin-bottom:12px;">A document becomes complete as soon as the student uploads it. The student then confirms the whole set, and only then does the application reach the Faculty.</p>
+
     <div class="rp-table-wrap">
       <table class="rp-table doc-table" style="min-width:0;">
         <thead><tr><th>Document Name</th><th>File</th><th>Registrar Status</th></tr></thead>
@@ -296,13 +272,20 @@ export async function regManageStudentModal(userId, tab) {
     </div>
 
     <div style="margin-top: 24px; border-top: 1px solid #eee; padding-top: 20px;">
-      <h4 style="margin-bottom: 10px; font-size:14px;">Return Application?</h4>
-      <p class="rp-hint" style="margin-bottom: 10px;">If a document is invalid or missing, you can return the application to the student with a reason.</p>
-      <form id="regReturnForm" style="display:flex; gap:10px;">
-        <input type="hidden" name="user_id" value="${userId}">
-        <input class="rp-input" name="feedback" placeholder="Reason for returning (e.g., Blurry PSA image)" required>
-        <button type="submit" class="rp-btn rp-btn-danger">Return Application</button>
-      </form>
+      ${app.documents_verified ? `
+        <h4 style="margin-bottom: 10px; font-size:14px;">Documents Confirmed</h4>
+        <div class="rp-notice mint" style="margin-bottom:0;">
+          <span>The student confirmed these documents, so the application can no longer be returned. The Faculty can now assign subjects.</span>
+        </div>
+      ` : `
+        <h4 style="margin-bottom: 10px; font-size:14px;">Return Application?</h4>
+        <p class="rp-hint" style="margin-bottom: 10px;">If a document is invalid or missing, you can return the application to the student with a reason. Once the student confirms the documents this option disappears.</p>
+        <form id="regReturnForm" style="display:flex; gap:10px;">
+          <input type="hidden" name="user_id" value="${userId}">
+          <input class="rp-input" name="feedback" placeholder="Reason for returning (e.g., Blurry PSA image)" required>
+          <button type="submit" class="rp-btn rp-btn-danger">Return Application</button>
+        </form>
+      `}
     </div>
   `;
 
@@ -411,10 +394,23 @@ export async function regManageStudentModal(userId, tab) {
     ? `${block.school || 'School not recorded'} ${block.year ? '(' + block.year + ')' : ''}`.trim()
     : '';
 
+  // Same file access as the Documents tab, so the Student Record shows the
+  // uploaded files and not only their status.
   const docStatusRows = docs.length ? docs.map(d => {
     const status = docStatus[d.id] || 'Missing';
-    return `<tr><td>${esc(d.name)}</td><td style="text-align:right"><span class="rp-badge ${status === 'Complete' ? 'green' : 'red'}">${esc(status)}</span></td></tr>`;
-  }).join('') : '<tr><td colspan="2" class="rp-empty">No documents on file.</td></tr>';
+    const file = uploaded[d.id];
+    return `
+      <tr>
+        <td>${esc(d.name)}</td>
+        <td data-label="File">
+          ${file
+            ? `<button class="rp-btn rp-btn-ghost rp-btn-sm" data-doc-url="${esc(file)}" onclick="window.viewDocument(this.dataset.docUrl)">View File</button>`
+            : '<span class="rp-badge gold">Not Uploaded</span>'}
+        </td>
+        <td style="text-align:right" data-label="Status"><span class="rp-badge ${status === 'Complete' ? 'green' : 'red'}">${esc(status)}</span></td>
+      </tr>
+    `;
+  }).join('') : '<tr><td colspan="3" class="rp-empty">No documents on file.</td></tr>';
 
   const paymentRows = logs.length ? logs
     .slice()
@@ -442,7 +438,8 @@ export async function regManageStudentModal(userId, tab) {
         <div class="rp-card-head"><h3>Enrollment</h3></div>
         ${kv('Program', programLabel(pr.preferred, 'Not set'))}
         ${kv('Year Level', pr.year_level ? 'Year ' + pr.year_level : '')}
-        ${kv('Status', app.status || (app.submitted ? 'Pending' : 'In Progress'))}
+        ${kv('Status', applicationStatus(app))}
+        ${kv('Documents Confirmed', app.documents_verified ? 'Yes' : 'No')}
         ${kv('Regularity', app.is_regular === false ? 'Irregular' : 'Regular')}
         ${kv('Application Type', app.doc_type)}
         ${kv('Submitted', app.submitted ? 'Yes' : 'No')}
@@ -461,11 +458,14 @@ export async function regManageStudentModal(userId, tab) {
     <div class="rp-card" style="margin-top:16px;">
       <div class="rp-card-head">
         <h3>Documents</h3>
-        <span class="rp-hint">${docs.filter(d => (docStatus[d.id] || 'Missing') === 'Complete').length}/${docs.length} complete</span>
+        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+          <span class="rp-badge ${app.documents_verified ? 'green' : 'gold'}">${app.documents_verified ? 'Confirmed by the student' : 'Not confirmed yet'}</span>
+          <span class="rp-hint">${docs.filter(d => (docStatus[d.id] || 'Missing') === 'Complete').length}/${docs.length} complete</span>
+        </div>
       </div>
       <div class="rp-table-wrap">
         <table class="rp-table" style="min-width:0;">
-          <thead><tr><th>Document</th><th style="text-align:right">Status</th></tr></thead>
+          <thead><tr><th>Document</th><th>File</th><th style="text-align:right">Status</th></tr></thead>
           <tbody>${docStatusRows}</tbody>
         </table>
       </div>

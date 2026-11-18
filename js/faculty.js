@@ -3,6 +3,8 @@ import { supa } from './api.js';
 import { decodePrereqSet, hydratePrereqSets, evaluatePrerequisites, missingLabel } from './prereqs.js';
 import { reportCard } from './report.js';
 import { isMetaRow, programLabel, programOptionsHtml, programCheckboxes, courseMatchesProgram, findUnitLimit, SEMESTERS } from './catalog.js';
+import { isVisibleToFaculty } from './documents.js';
+import { applicationStatus } from './status.js';
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
@@ -15,7 +17,7 @@ export async function renderFacultyDashboard() {
     supa('presets').catch(() => [])
   ]);
 
-  const verified = apps.filter(a => a.submitted && !a.returned).length;
+  const verified = apps.filter(isVisibleToFaculty).length;
   const assigned = new Set(subjectRows.filter(s => !isHistorySubject(s)).map(s => String(s.user_id)));
   const passed = subjectRows.filter(s => String(s.remarks || '').trim() === 'Passed').length;
   const prereqSets = presetRows.map(decodePrereqSet).filter(Boolean);
@@ -36,7 +38,7 @@ export async function renderFacultyDashboard() {
       pr.year_level ? 'Year ' + pr.year_level : '-',
       load.length,
       units,
-      app.status || (app.submitted ? 'Pending' : 'In progress')
+      applicationStatus(app)
     ];
   });
 
@@ -50,7 +52,7 @@ export async function renderFacultyDashboard() {
     <div class="rp-grid-2">
       <div class="rp-card">
         <h3>College Department</h3>
-        <p class="rp-hint" style="margin-top:10px;">Go to <strong>Check Students</strong> to assign subjects. Only students whose documents have been verified by the Registrar will appear here.</p>
+        <p class="rp-hint" style="margin-top:10px;">Go to <strong>Check Students</strong> to assign subjects. Only students who have confirmed their documents appear here.</p>
       </div>
       <div class="rp-card">
         <h3>Prerequisite Sequences</h3>
@@ -95,24 +97,9 @@ export async function renderFacultyProgress() {
     const yearMatch = filterYear ? String(pr.year_level) === String(filterYear) : true;
     const progMatch = filterProg ? String(pr.preferred) === String(filterProg) : true;
     
-    // 2. Application Status (Must be submitted and NOT returned)
-    const hasApp = !!app.submitted && !app.returned; 
-
-    // 3. Document Verification (Registrar must mark all required docs as Complete)
-    const docStatus = app.doc_status || {};
-    let docsComplete = true;
-    
-    if (app.doc_type === 'freshman') {
-      docsComplete = ['form138', 'psa', 'idpic', 'goodmoral', 'exam'].every(id => docStatus[id] === 'Complete');
-    } else if (app.doc_type === 'transferee') {
-      docsComplete = ['transfer_cred', 'tor', 'goodmoral_prev', 'psa', 'idpic'].every(id => docStatus[id] === 'Complete');
-    } else if (app.doc_type === 'returnee') {
-      docsComplete = ['readmission', 'clearance'].every(id => docStatus[id] === 'Complete');
-    } else {
-      docsComplete = false; // If no doc_type, they can't proceed
-    }
-
-    return hasApp && nameMatch && yearMatch && progMatch && docsComplete;
+    // 2. Only students who submitted their application and confirmed every
+    //    required document are visible to the Faculty.
+    return isVisibleToFaculty(app) && nameMatch && yearMatch && progMatch;
   });
 
   if (window.facultySelectedStudent) {
@@ -350,7 +337,7 @@ export async function renderFacultyProgress() {
     </div>
 
     <div class="rp-notice info" style="margin-bottom: 16px;">
-      <span>Only students whose documents have been <strong>Verified by the Registrar</strong> appear here.</span>
+      <span>Only students who have <strong>confirmed their documents</strong> appear here.</span>
     </div>
 
     <div class="rp-table-wrap">
