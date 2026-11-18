@@ -657,8 +657,6 @@ document.addEventListener('click', async (e) => {
     const id = document.getElementById('reg_prereq_id').value;
     const title = document.getElementById('reg_prereq_title').value.trim();
     const prog = document.getElementById('reg_prereq_prog').value;
-    const year = document.getElementById('reg_prereq_year').value;
-    const sem = document.getElementById('reg_prereq_sem').value;
     const subjects = window.tempRegPrereqSubjects || [];
 
     if (!title) return toast('A title is required.', 'error');
@@ -666,16 +664,19 @@ document.addEventListener('click', async (e) => {
 
     const payload = {
       name: encodePrereqName(title, subjects.map(s => s.id)),
-      program_id: Number(prog),
-      year_level: Number(year),
-      semester: sem
+      program_id: Number(prog)
     };
 
     try {
       if (id) {
         await supa('presets', { method: 'PATCH', match: { id: Number(id) }, body: payload });
       } else {
-        await supa('presets', { method: 'POST', body: payload });
+        // Year level and semester are no longer part of a sequence; keep the
+        // presets columns filled so inserts stay valid for existing schemas.
+        await supa('presets', {
+          method: 'POST',
+          body: { ...payload, year_level: 1, semester: '1st Semester' }
+        });
       }
       toast('Prerequisite set saved.');
       document.getElementById('regPrereqModal')?.remove();
@@ -824,7 +825,6 @@ document.addEventListener('change', async (e) => {
   else if (key === 'regPresetFilterProg') { window.regPresetFilterProg = e.target.value; renderAll(); }
   else if (key === 'regPresetFilterYear') { window.regPresetFilterYear = e.target.value; renderAll(); }
   else if (key === 'regPrereqFilterProg') { window.regPrereqFilterProg = e.target.value; renderAll(); }
-  else if (key === 'regPrereqFilterYear') { window.regPrereqFilterYear = e.target.value; renderAll(); }
   else if (key === 'regCourseFilterProg') { window.regCourseFilterProg = e.target.value; renderAll(); }
   else if (key === 'regFilterProg') { window.regFilterProg = e.target.value; renderAll(); }
   else if (key === 'regFilterYear') { window.regFilterYear = e.target.value; renderAll(); }
@@ -1009,7 +1009,6 @@ window.regFilterStatus = '';
 window.regPresetFilterProg = 'all';
 window.regPresetFilterYear = 'all';
 window.regPrereqFilterProg = 'all';
-window.regPrereqFilterYear = 'all';
 window.regCourseFilterProg = 'all';
 window.facultySelectedStudent = null;
 window.facultyPrereqErrors = [];

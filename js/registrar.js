@@ -973,10 +973,9 @@ window.regRemovePresetSubjectTemp = (psId, courseId) => {
 /* =========================================================================
    PREREQUISITE SUBJECTS
    -------------------------------------------------------------------------
-   A prerequisite set is an ordered sequence of subjects for one program,
-   year level and semester. Order defines what has to be taken first, so the
-   editor lets the registrar drag subjects or nudge them with the arrow
-   buttons.
+   A prerequisite set is an ordered sequence of subjects for one program.
+   Order defines what has to be taken first, so the editor lets the registrar
+   drag subjects or nudge them with the arrow buttons.
    ========================================================================= */
 
 export async function renderRegistrarPrereqs() {
@@ -987,13 +986,10 @@ export async function renderRegistrarPrereqs() {
 
   const sets = hydratePrereqSets(rows.map(decodePrereqSet).filter(Boolean), courses);
   const filterProg = window.regPrereqFilterProg || 'all';
-  const filterYear = window.regPrereqFilterYear || 'all';
 
-  const filtered = sets.filter(set => {
-    const progMatch = filterProg === 'all' || String(set.programId) === String(filterProg);
-    const yearMatch = filterYear === 'all' || String(set.yearLevel) === String(filterYear);
-    return progMatch && yearMatch;
-  });
+  const filtered = sets.filter(set =>
+    filterProg === 'all' || String(set.programId) === String(filterProg)
+  );
 
   const chainText = (set) => set.courses.length
     ? set.courses.map(c => esc(c.code)).join(' <span class="chain-arrow">&rarr;</span> ')
@@ -1008,13 +1004,6 @@ export async function renderRegistrarPrereqs() {
           <option value="2" ${filterProg === '2' ? 'selected' : ''}>BSEd</option>
           <option value="8" ${filterProg === '8' ? 'selected' : ''}>BSCS</option>
         </select>
-        <select class="rp-input" data-change="regPrereqFilterYear" style="width:140px;">
-          <option value="all">All Years</option>
-          <option value="1" ${filterYear === '1' ? 'selected' : ''}>1st Year</option>
-          <option value="2" ${filterYear === '2' ? 'selected' : ''}>2nd Year</option>
-          <option value="3" ${filterYear === '3' ? 'selected' : ''}>3rd Year</option>
-          <option value="4" ${filterYear === '4' ? 'selected' : ''}>4th Year</option>
-        </select>
       </div>
       <button class="rp-btn rp-btn-primary" data-action="regCreatePrereq">Create New Prerequisite Set</button>
     </div>
@@ -1025,21 +1014,19 @@ export async function renderRegistrarPrereqs() {
 
     <div class="rp-table-wrap">
       <table class="rp-table">
-        <thead><tr><th>Title</th><th>Program</th><th>Year</th><th>Sem</th><th>Sequence</th><th style="text-align:right">Actions</th></tr></thead>
+        <thead><tr><th>Title</th><th>Program</th><th>Sequence</th><th style="text-align:right">Actions</th></tr></thead>
         <tbody>
           ${filtered.length ? filtered.map(set => `
             <tr>
               <td><strong>${esc(set.title)}</strong></td>
               <td><span class="rp-badge green">${PROGRAMS[set.programId] || 'Unknown'}</span></td>
-              <td>Year ${esc(set.yearLevel)}</td>
-              <td>${esc(set.semester)}</td>
               <td>${chainText(set)}</td>
               <td style="text-align:right; white-space:nowrap;">
                 <button class="rp-btn rp-btn-primary rp-btn-sm" data-action="regEditPrereq" data-id="${set.id}">Edit</button>
                 <button class="rp-btn rp-btn-danger rp-btn-sm" data-action="regDeletePrereq" data-id="${set.id}">Delete</button>
               </td>
             </tr>
-          `).join('') : '<tr><td colspan="6" class="rp-empty">No prerequisite subjects found.</td></tr>'}
+          `).join('') : '<tr><td colspan="4" class="rp-empty">No prerequisite subjects found.</td></tr>'}
         </tbody>
       </table>
     </div>
@@ -1050,7 +1037,7 @@ export async function regEditPrereqModal(setId) {
   const isNew = !setId;
   const courses = await supa('courses').catch(() => []);
 
-  let set = { id: null, title: '', programId: '1', yearLevel: '1', semester: '1st Semester', courseIds: [] };
+  let set = { id: null, title: '', programId: '1', courseIds: [] };
   if (!isNew) {
     const rows = await supa('presets', { match: { id: setId } });
     const decoded = decodePrereqSet(rows[0]);
@@ -1085,25 +1072,6 @@ export async function regEditPrereqModal(setId) {
                     <option value="2" ${String(set.programId) === '2' ? 'selected' : ''}>BSEd</option>
                     <option value="8" ${String(set.programId) === '8' ? 'selected' : ''}>BSCS</option>
                   </select>
-                </div>
-                <div class="field-row">
-                  <div class="field">
-                    <label>Year Level</label>
-                    <select class="rp-input" id="reg_prereq_year">
-                      <option value="1" ${String(set.yearLevel) === '1' ? 'selected' : ''}>1st Year</option>
-                      <option value="2" ${String(set.yearLevel) === '2' ? 'selected' : ''}>2nd Year</option>
-                      <option value="3" ${String(set.yearLevel) === '3' ? 'selected' : ''}>3rd Year</option>
-                      <option value="4" ${String(set.yearLevel) === '4' ? 'selected' : ''}>4th Year</option>
-                    </select>
-                  </div>
-                  <div class="field">
-                    <label>Semester</label>
-                    <select class="rp-input" id="reg_prereq_sem">
-                      <option value="1st Semester" ${set.semester === '1st Semester' ? 'selected' : ''}>1st Semester</option>
-                      <option value="2nd Semester" ${set.semester === '2nd Semester' ? 'selected' : ''}>2nd Semester</option>
-                      <option value="Summer" ${set.semester === 'Summer' ? 'selected' : ''}>Summer</option>
-                    </select>
-                  </div>
                 </div>
                 <div class="rp-hint">The student must take these subjects in the order shown on the right.</div>
               </div>
