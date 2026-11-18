@@ -231,6 +231,7 @@ a { color: var(--mint-600); text-decoration: none; }
 }
 
 .role-side-brand { display: flex; align-items: center; gap: 12px; padding: 0 4px; margin-bottom: 10px; }
+.role-nav-toggle { display: none; }
 .role-side-brand strong { color: #fff; font-size: 14px; display: block; }
 .role-side-brand span { color: var(--gold-300); font-size: 11.5px; }
 .role-nav { display: flex; flex-direction: column; gap: 4px; }
@@ -499,12 +500,15 @@ a { color: var(--mint-600); text-decoration: none; }
   .doc-choices { grid-template-columns: 1fr; }
   .role-shell { grid-template-columns: minmax(0, 1fr); position: static; width: 100%; min-height: 100vh; }
   .role-sidebar { position: static; height: auto; padding: 14px; flex-direction: row; align-items: center; flex-wrap: wrap; gap: 10px 12px; overflow: visible; }
-  .role-side-brand { margin-bottom: 0; }
-  .role-nav { flex: 1 1 100%; order: 3; flex-direction: row; overflow-x: auto; min-width: 0; padding-bottom: 4px; scrollbar-width: none; }
-  .role-nav::-webkit-scrollbar { display: none; }
-  .role-nav-group { display: none; }
-  .role-nav-item { width: auto; white-space: nowrap; }
-  .role-side-foot { margin-top: 0; margin-left: auto; order: 2; padding-top: 0; }
+  .role-side-brand { margin-bottom: 0; min-width: 0; }
+  .role-nav-toggle { display: inline-flex; align-items: center; justify-content: center; width: 38px; height: 38px; flex-shrink: 0; margin-left: auto; border-radius: 10px; border: 1.5px solid rgba(255,255,255,.28); background: rgba(255,255,255,.08); color: #fff; font-size: 15px; line-height: 1; }
+  .role-nav-toggle:hover { background: rgba(255,255,255,.18); }
+  .role-nav { display: none; flex: 1 1 100%; order: 3; flex-direction: row; flex-wrap: wrap; gap: 6px; overflow: visible; min-width: 0; padding-bottom: 2px; }
+  .role-sidebar.nav-open .role-nav { display: flex; }
+  .role-nav-group { width: 100%; padding: 8px 2px 0; }
+  .role-nav-item { width: auto; flex: 1 1 auto; justify-content: center; white-space: nowrap; border: 1px solid rgba(255,255,255,.14); padding: 9px 12px; }
+  .role-nav-item.active { border-color: transparent; }
+  .role-side-foot { margin-top: 0; margin-left: 0; order: 2; padding-top: 0; }
   .role-side-foot button { width: auto; }
   .role-main { height: auto; min-height: 0; overflow-y: visible; }
   .role-content { padding: 18px 14px 60px; }
@@ -657,21 +661,22 @@ img, svg, iframe, video, canvas { max-width: 100%; }
   .reg-doc-preview { height: 260px; }
 }
 
-/* Document checklists become one card per document on phones */
+/* Data tables become one card per row on phones (labels come from the header row) */
 @media (max-width: 700px) {
-  .rp-table-wrap:has(.doc-table) { border: none; background: transparent; overflow: visible; }
-  .rp-table.doc-table { min-width: 0; border: none; }
-  .rp-table.doc-table thead { display: none; }
-  .rp-table.doc-table, .rp-table.doc-table tbody,
-  .rp-table.doc-table tr, .rp-table.doc-table td { display: block; width: 100%; }
-  .rp-table.doc-table tr { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; margin-bottom: 10px; background: #fff; box-shadow: var(--shadow); }
-  .rp-table.doc-table tr:hover { background: #fff; }
-  .rp-table.doc-table td { border: none; padding: 4px 0; display: flex; align-items: center; justify-content: space-between; gap: 14px; text-align: left !important; }
-  .rp-table.doc-table td:first-child { display: block; padding: 0 0 8px; }
-  .rp-table.doc-table td:first-child::before { display: none; }
-  .rp-table.doc-table td::before { content: attr(data-label); font-size: 10.5px; font-weight: 800; letter-spacing: .7px; text-transform: uppercase; color: var(--muted); }
-  .rp-table.doc-table td:empty { display: none; }
-  .rp-table.doc-table .rp-input { width: auto; min-width: 120px; }
+  .rp-table-wrap:has(.rp-table) { border: none; background: transparent; overflow: visible; max-height: none; }
+  .rp-table { min-width: 0; border: none; }
+  .rp-table thead { display: none; }
+  .rp-table, .rp-table tbody, .rp-table tr, .rp-table td { display: block; width: 100%; }
+  .rp-table tr { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; margin-bottom: 10px; background: #fff; box-shadow: var(--shadow); }
+  .rp-table tbody tr:hover { background: #fff; }
+  .rp-table td { border: none; padding: 4px 0; display: flex; align-items: center; justify-content: space-between; gap: 14px; text-align: left !important; }
+  .rp-table td:first-child { display: block; padding: 0 0 8px; }
+  .rp-table td:first-child::before { display: none; }
+  .rp-table td::before { content: attr(data-label); font-size: 10.5px; font-weight: 800; letter-spacing: .7px; text-transform: uppercase; color: var(--muted); }
+  .rp-table td:empty { display: none; }
+  .rp-table td[colspan] { display: block; text-align: center !important; }
+  .rp-table td[colspan]::before { display: none; }
+  .rp-table .rp-input { width: auto; min-width: 120px; }
   #regReturnForm { flex-wrap: wrap; }
   #regReturnForm .rp-input, #regReturnForm .rp-btn { flex: 1 1 100%; }
 }
@@ -679,4 +684,46 @@ img, svg, iframe, video, canvas { max-width: 100%; }
 @media (max-width: 380px) {
   .rp-grid-4 { grid-template-columns: minmax(0, 1fr); }
   .rp-stat .val { font-size: 22px; }
+}
+
+/* =========================================================
+   PRINT (registration form, student record, reports)
+   ========================================================= */
+@media print {
+  @page { margin: 12mm; }
+
+  html, body { background: #fff !important; height: auto; overflow: visible; }
+  .navbar, .role-sidebar, .role-topbar, .auth-topbar, .auth-hero-foot,
+  .toast-root, .role-nav-toggle, .apply-footer, .rp-toolbar,
+  .rp-tabs, .report-head-actions, .btn, .rp-btn, .file-btn { display: none !important; }
+
+  .page-wrap { padding: 0 !important; max-width: none !important; }
+  .role-shell { position: static; display: block; min-height: 0; }
+  .role-main { height: auto; overflow: visible; background: #fff; }
+  .role-content { padding: 0 !important; }
+
+  .rp-card, .progress-card, .college-banner, .schedule-header-card { box-shadow: none !important; }
+  .progress-card { padding: 0 !important; max-width: none !important; }
+  .rp-card { break-inside: avoid; }
+
+  /* Undo the phone card layout and sideways scrolling */
+  .rp-table-wrap, .receipt-scroll, .timetable-scroll {
+    overflow: visible !important; max-height: none !important; border: none !important;
+  }
+  .rp-table { display: table !important; width: 100% !important; min-width: 0 !important; border-collapse: collapse !important; }
+  .rp-table thead { display: table-header-group !important; }
+  .rp-table tbody { display: table-row-group !important; }
+  .rp-table tr { display: table-row !important; border: none !important; padding: 0 !important; margin: 0 !important; box-shadow: none !important; background: #fff !important; }
+  .rp-table th, .rp-table td, .rp-table td:first-child {
+    display: table-cell !important; border: 1px solid #b9c9c2 !important; padding: 5px 6px !important; text-align: left !important;
+  }
+  .rp-table td::before { display: none !important; }
+  .rp-badge { border: 1px solid #b9c9c2; }
+
+  .receipt-scroll table { min-width: 0 !important; }
+  .reg-subject-doc { position: static !important; break-inside: avoid; }
+  .reg-doc-preview { height: 240px; }
+  .timetable { min-width: 0 !important; }
+  .tt-block { box-shadow: none !important; }
+  .rp-notice { break-inside: avoid; }
 }

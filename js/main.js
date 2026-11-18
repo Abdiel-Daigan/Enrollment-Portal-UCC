@@ -910,6 +910,119 @@ window.logout = () => { doLogout(() => renderAll()); };
 // Expose renderAll globally
 window.renderAll = renderAll;
 
+/* =========================================================================
+   MOBILE NAV, TABLE LABELS, DIALOG ACCESSIBILITY
+   ========================================================================= */
+
+window.toggleRoleNav = (btn) => {
+  const sidebar = btn.closest('.role-sidebar');
+  if (!sidebar) return;
+  const open = sidebar.classList.toggle('nav-open');
+  btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+  btn.setAttribute('aria-label', open ? 'Close navigation menu' : 'Open navigation menu');
+  btn.textContent = open ? '\u2715' : '\u2630';
+};
+
+/* Copy each column header onto its cells so the phone card layout has labels. */
+function labelTableCells() {
+  document.querySelectorAll('table.rp-table').forEach((table) => {
+    const headers = [...table.querySelectorAll('thead th')].map(th => th.textContent.trim());
+    if (!headers.length) return;
+    table.querySelectorAll('tbody tr').forEach((row) => {
+      [...row.children].forEach((cell, index) => {
+        if (cell.tagName !== 'TD' || cell.dataset.label || cell.hasAttribute('colspan')) return;
+        if (headers[index]) cell.dataset.label = headers[index];
+      });
+    });
+  });
+}
+
+let returnFocusTo = null;
+
+function focusableIn(root) {
+  return [...root.querySelectorAll('a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')]
+    .filter(el => el.offsetParent !== null || el === document.activeElement);
+}
+
+function labelIconButtons(root) {
+  root.querySelectorAll('button:not([aria-label])').forEach((btn) => {
+    const text = btn.textContent.trim();
+    if (/^[\u2715\u00d7]$/.test(text)) {
+      btn.setAttribute('aria-label', btn.closest('.rp-modal-head') ? 'Close dialog' : 'Remove');
+    } else if (btn.title && text.length <= 2) {
+      btn.setAttribute('aria-label', btn.title);
+    }
+  });
+}
+
+function setupDialog(backdrop) {
+  if (backdrop.dataset.enhanced) return;
+  const dialog = backdrop.querySelector('.rp-modal');
+  if (!dialog) return;
+  backdrop.dataset.enhanced = '1';
+
+  dialog.setAttribute('role', 'dialog');
+  dialog.setAttribute('aria-modal', 'true');
+  dialog.setAttribute('tabindex', '-1');
+  const heading = dialog.querySelector('.rp-modal-head h3');
+  if (heading && !dialog.getAttribute('aria-label')) {
+    dialog.setAttribute('aria-label', heading.textContent.trim());
+  }
+  labelIconButtons(dialog);
+
+  returnFocusTo = document.activeElement;
+  const first = focusableIn(dialog)[0] || dialog;
+  first.focus({ preventScroll: true });
+}
+
+function refreshEnhancements() {
+  labelTableCells();
+  labelIconButtons(document);
+  document.querySelectorAll('.rp-modal-backdrop').forEach(setupDialog);
+
+  if (!document.querySelector('.rp-modal-backdrop')) {
+    if (returnFocusTo && document.contains(returnFocusTo)) returnFocusTo.focus({ preventScroll: true });
+    returnFocusTo = null;
+  }
+}
+
+let enhanceQueued = false;
+const enhanceObserver = new MutationObserver(() => {
+  if (enhanceQueued) return;
+  enhanceQueued = true;
+  requestAnimationFrame(() => { enhanceQueued = false; refreshEnhancements(); });
+});
+enhanceObserver.observe(document.body, { childList: true, subtree: true });
+refreshEnhancements();
+
+document.addEventListener('keydown', (e) => {
+  const backdrops = [...document.querySelectorAll('.rp-modal-backdrop')];
+  if (!backdrops.length) return;
+  const top = backdrops[backdrops.length - 1];
+  const dialog = top.querySelector('.rp-modal');
+  if (!dialog) return;
+
+  if (e.key === 'Escape') {
+    e.preventDefault();
+    top.remove();
+    return;
+  }
+
+  if (e.key === 'Tab') {
+    const items = focusableIn(dialog);
+    if (!items.length) return;
+    const first = items[0];
+    const last = items[items.length - 1];
+    if (e.shiftKey && document.activeElement === first) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  }
+});
+
 window.currentView = 'dashboard';
 window.currentStep = 1;
 window.facultySearch = '';
