@@ -79,8 +79,10 @@ a { color: var(--mint-600); text-decoration: none; }
 
 .field { display: grid; gap: 6px; margin-bottom: 14px; }
 .field label { font-size: 12.8px; font-weight: 700; color: var(--mint-800); }
-.field input, .field select { width: 100%; padding: 11px 13px; border: 1.5px solid var(--line); border-radius: var(--radius-sm); background: #fbfefd; font-size: 14.2px; transition: .16s; }
-.field input:focus, .field select:focus { outline: none; border-color: var(--mint-400); background: #fff; box-shadow: 0 0 0 4px rgba(47,185,140,.14); }
+/* Text fields only: this rule must not stretch the checkboxes and search box
+   of the program picker, which can sit inside a .field label wrapper. */
+.field input:not([type="checkbox"]):not([type="search"]), .field select { width: 100%; padding: 11px 13px; border: 1.5px solid var(--line); border-radius: var(--radius-sm); background: #fbfefd; font-size: 14.2px; transition: .16s; }
+.field input:not([type="checkbox"]):not([type="search"]):focus, .field select:focus { outline: none; border-color: var(--mint-400); background: #fff; box-shadow: 0 0 0 4px rgba(47,185,140,.14); }
 .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 
 /* =========================================================
@@ -748,13 +750,15 @@ img, svg, iframe, video, canvas { max-width: 100%; }
 
 .program-picker-tools { display: flex; gap: 6px; }
 
+/* One program per row so every name is readable; the list scrolls vertically */
 .program-picker-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  display: flex;
+  flex-direction: column;
   gap: 6px;
-  max-height: 190px;
+  max-height: 220px;
   overflow-y: auto;
-  padding: 2px;
+  overflow-x: hidden;
+  padding: 2px 4px 2px 2px;
 }
 
 .program-chip {
@@ -771,7 +775,7 @@ img, svg, iframe, video, canvas { max-width: 100%; }
 }
 
 .program-chip:hover { border-color: var(--mint-500, #4fae8c); }
-.program-chip input { margin: 0; flex: 0 0 auto; }
+.program-chip input[type="checkbox"] { width: 15px; height: 15px; min-width: 15px; margin: 0; padding: 0; border: 1px solid #c9ddd4; border-radius: 4px; background: #fff; accent-color: var(--mint-600); flex: 0 0 auto; }
 .program-chip:has(input:checked) {
   border-color: var(--mint-500, #4fae8c);
   background: var(--mint-50, #eef8f3);
@@ -784,10 +788,11 @@ img, svg, iframe, video, canvas { max-width: 100%; }
 .program-chip-text {
   display: flex;
   flex-direction: column;
+  flex: 1 1 auto;
   line-height: 1.25;
   min-width: 0;
 }
-.program-chip-text strong { font-size: 12.6px; }
+.program-chip-text strong { font-size: 12.6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .program-chip-text small {
   color: var(--muted, #6b7c76);
   font-size: 10.8px;
@@ -825,7 +830,6 @@ img, svg, iframe, video, canvas { max-width: 100%; }
 .unit-limit-field label { font-size: 12px; font-weight: 700; }
 
 @media (max-width: 520px) {
-  .program-picker-list { grid-template-columns: 1fr; }
   .unit-limit-grid { grid-template-columns: 1fr 1fr; }
 }
 
