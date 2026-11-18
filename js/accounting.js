@@ -1,37 +1,123 @@
 import { esc, toast, isHistorySubject } from './utils.js';
 import { supa } from './api.js';
+import { reportCard } from './report.js';
 
 export async function renderAccountingDashboard() {
-  const logs = await supa('payment_logs');
-  const apps = await supa('applications');
-  
-  const totalCollected = logs.reduce((sum, log) => sum + Number(log.amount), 0);
+  const [logs, apps, users, subjects, courses, settingsRes] = await Promise.all([
+    supa('payment_logs').catch(() => []),
+    supa('applications').catch(() => []),
+    supa('users', { match: { role: 'student' } }).catch(() => []),
+    supa('student_subjects').catch(() => []),
+    supa('courses').catch(() => []),
+    supa('system_settings', { match: { id: 1 } }).catch(() => [])
+  ]);
+
+  const settings = settingsRes[0] || { tuition_per_unit: 444, misc_fee: 5452, reg_fee: 1000 };
+  const totalCollected = logs.reduce((sum, log) => sum + Number(log.amount || 0), 0);
   const onlinePayments = logs.filter(l => l.processed_by === 'Online').length;
   const inPersonPayments = logs.filter(l => l.processed_by === 'Accounting').length;
+
+  const rows = users.map(u => {
+    const app = apps.find(a => String(a.user_id) === String(u.id)) || {};
+    const load = subjects.filter(s => String(s.user_id) === String(u.id) && !isHistorySubject(s));
+    const units = load.reduce((sum, s) => {
+      const c = courses.find(x => String(x.id) === String(s.course_id));
+      return sum + (c ? Number(c.units) : 0);
+    }, 0);
+    const assessment = units > 0
+      ? (units * Number(settings.tuition_per_unit)) + Number(settings.misc_fee) + Number(settings.reg_fee)
+      : 0;
+    const paid = Number(app.amount_paid || 0);
+    const balance = Math.max(assessment - paid, 0);
+    const transactions = logs.filter(l => String(l.user_id) === String(u.id)).length;
+    return {
+      name: u.name,
+      id: u.student_id || '-',
+      units,
+      assessment,
+      paid,
+      balance,
+      transactions
+    };
+  });
+
+  const assessed = rows.filter(r => r.assessment > 0);
+  const fullyPaid = assessed.filter(r => r.balance <= 0).length;
+  const withBalance = assessed.length - fullyPaid;
+  const outstanding = assessed.reduce((sum, r) => sum + r.balance, 0);
+
+  const reportRows = rows.map(r => [
+    r.name,
+    r.id,
+    r.units,
+    r.assessment.toFixed(2),
+    r.paid.toFixed(2),
+    r.balance.toFixed(2),
+    r.transactions
+  ]);
 
   return `
     <div class="rp-grid-4">
       <div class="rp-card rp-stat">
-        <div class="ic">💰</div>
-        <div><div class="val">₱${totalCollected.toLocaleString('en-PH', {minimumFractionDigits:2})}</div><div class="lbl">Total Collected</div></div>
+        <div class="ic">TC</div>
+        <div><div class="val">PHP ${totalCollected.toLocaleString('en-PH', {minimumFractionDigits:2})}</div><div class="lbl">Total Collected</div></div>
       </div>
       <div class="rp-card rp-stat gold">
-        <div class="ic">💳</div>
-        <div><div class="val">${onlinePayments}</div><div class="lbl">Online Payments</div></div>
-      </div>
-      <div class="rp-card rp-stat">
-        <div class="ic">🏢</div>
-        <div><div class="val">${inPersonPayments}</div><div class="lbl">In-Person Payments</div></div>
-      </div>
-      <div class="rp-card rp-stat gold">
-        <div class="ic">🧾</div>
+        <div class="ic">TX</div>
         <div><div class="val">${logs.length}</div><div class="lbl">Total Transactions</div></div>
       </div>
+      <div class="rp-card rp-stat">
+        <div class="ic">OL</div>
+        <div><div class="val">${onlinePayments}</div><div class="lbl">Online Payments</div></div>
+      </div>
+      <div class="rp-card rp-stat gold">
+        <div class="ic">CT</div>
+        <div><div class="val">${inPersonPayments}</div><div class="lbl">Counter Payments</div></div>
+      </div>
     </div>
+
+    <div class="rp-grid-4">
+      <div class="rp-card rp-stat"><div class="ic">AS</div><div><div class="val">${assessed.length}</div><div class="lbl">Students Assessed</div></div></div>
+      <div class="rp-card rp-stat"><div class="ic">FP</div><div><div class="val">${fullyPaid}</div><div class="lbl">Fully Paid</div></div></div>
+      <div class="rp-card rp-stat gold"><div class="ic">WB</div><div><div class="val">${withBalance}</div><div class="lbl">With Balance</div></div></div>
+      <div class="rp-card rp-stat gold"><div class="ic">OS</div><div><div class="val">PHP ${outstanding.toLocaleString('en-PH', {minimumFractionDigits:2})}</div><div class="lbl">Outstanding Balance</div></div></div>
+    </div>
+
     <div class="rp-card">
       <h3>Accounting Overview</h3>
-      <p class="rp-hint" style="margin-top:10px;">Use the sidebar to view payment logs, manage student balances, or update the tuition fee settings.</p>
+      <p class="rp-hint" style="margin-top:10px;">Use the sidebar to view payment logs, manage student balances, or update the tuition fee settings. Assessments use ${Number(settings.tuition_per_unit).toLocaleString('en-PH')} per unit plus ${Number(settings.misc_fee).toLocaleString('en-PH')} miscellaneous and ${Number(settings.reg_fee).toLocaleString('en-PH')} registration fees.</p>
     </div>
+
+    ${reportCard({
+      id: 'accounting-balances',
+      title: 'Student Assessment and Balance Report',
+      hint: 'Assessment per student based on the current fee settings, with payments logged and remaining balance.',
+      columns: ['Student', 'Student ID', 'Units', 'Assessment', 'Paid', 'Balance', 'Transactions'],
+      rows: reportRows,
+      filename: 'ucc-accounting-balances.csv'
+    })}
+
+    ${reportCard({
+      id: 'accounting-logs',
+      title: 'Payment Transactions Report',
+      hint: 'Every payment recorded by the portal or the cashier, newest first.',
+      columns: ['Date', 'Student', 'Reference No.', 'Type', 'Processed By', 'Amount'],
+      rows: logs
+        .slice()
+        .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0))
+        .map(l => {
+          const u = users.find(x => String(x.id) === String(l.user_id)) || { name: 'Unknown' };
+          return [
+            l.created_at ? new Date(l.created_at).toLocaleDateString('en-PH') : '-',
+            u.name,
+            l.reference_no || '-',
+            l.payment_type || '-',
+            l.processed_by || '-',
+            Number(l.amount || 0).toFixed(2)
+          ];
+        }),
+      filename: 'ucc-payment-transactions.csv'
+    })}
   `;
 }
 
@@ -200,7 +286,7 @@ export async function accountingManageStudentModal(studentId) {
             </form>
           ` : `
             <div class="rp-notice mint">
-              <span>✅</span><span>This student is fully paid.</span>
+              <span>This student is fully paid.</span>
             </div>
           `}
         </div>

@@ -2,10 +2,21 @@ import { $, esc, toast, initials, isHistorySubject } from './utils.js';
 import { supa } from './api.js';
 import { session, loadSession, doLogin, doRegister, doLogout } from './auth.js';
 import { renderStudentDashboard, renderApply, renderPaymentTab, renderScheduleTab, renderRegistrationTab, renderStudentDocumentsTab } from './student.js';
-import { renderAdminDashboard, renderAdminStudents, renderAdminCourses, renderAdminEnrollments, adminOpenStudentModal } from './admin.js';
-import { renderFacultyDashboard, renderFacultyProgress } from './faculty.js'; 
+import { renderAdminDashboard } from './admin.js';
+import { renderFacultyDashboard, renderFacultyProgress } from './faculty.js';
 import { renderAccountingDashboard, renderAccountingLogs, renderAccountingSettings, renderAccountingStudents, accountingManageStudentModal } from './accounting.js';
-import { renderRegistrarDashboard, renderRegistrarPresets, renderRegistrarCourses, renderRegistrarStudents, regManageStudentModal, regEditPresetModal, regEditCourseModal } from './registrar.js';
+import {
+  renderRegistrarDashboard,
+  renderRegistrarPresets,
+  renderRegistrarCourses,
+  renderRegistrarStudents,
+  renderRegistrarPrereqs,
+  regManageStudentModal,
+  regEditPresetModal,
+  regEditCourseModal,
+  regEditPrereqModal
+} from './registrar.js';
+import { decodePrereqSet, hydratePrereqSets, encodePrereqName, evaluatePrerequisites, missingLabel } from './prereqs.js';
 
 loadSession();
 
@@ -69,12 +80,13 @@ export async function renderAll() {
 
   let currentView = window.currentView || 'dashboard';
   if (!navItems.find(n => n.id === currentView)) {
-    currentView = navItems[0].id; 
+    currentView = navItems[0].id;
     window.currentView = currentView;
   }
 
   navbar.innerHTML = `
     <div class="nav-brand">
+      <img src="Images/ucc-logo.png" alt="Unida Christian Colleges" class="nav-brand-logo">
       <div class="nav-brand-text"><span class="b1">UNIDA</span><span class="b2">CHRISTIAN COLLEGES</span></div>
     </div>
     <div class="nav-links">
@@ -108,7 +120,7 @@ window.payTuition = async (type, total, currentPaid) => {
     const refNo = 'PAY-ONL-' + Date.now().toString().slice(-6);
 
     await supa('applications', { method: 'PATCH', match: { user_id: session.userId }, body: { amount_paid: newPaid } });
-    
+
     await supa('payment_logs', {
       method: 'POST',
       body: {
@@ -124,81 +136,110 @@ window.payTuition = async (type, total, currentPaid) => {
     window.currentView = 'schedule';
     renderAll();
   } catch (err) {
-    console.error("Payment Error Details:", err);
+    console.error('Payment Error Details:', err);
     toast('Payment failed. Check console (F12) for details.', 'error');
   }
 };
 
+// --- LOGIN / REGISTRATION ---
 function renderAuthPage() {
   $('#authPage').innerHTML = `
-    <div class="auth-card">
-      <aside class="auth-brand">
-        <div class="brand-mark">UCC</div>
-        <div class="brand-body">
-          <div class="brand-eyebrow">Unida Christian Colleges</div>
-          <h1>Enrollment Portal</h1>
-          <p class="brand-tagline">Everything you need to enroll — application, requirements, assessment and receipts in one place.</p>
-          <ul class="auth-features">
-            <li>Submit your application and upload requirements online</li>
-            <li>See your schedule and registration form once assessed</li>
-            <li>Keep every payment receipt for your records</li>
-          </ul>
+    <header class="auth-topbar">
+      <div class="auth-topbar-brand">
+        <img src="Images/ucc-logo.png" alt="Unida Christian Colleges" class="auth-logo">
+        <div class="auth-topbar-text">
+          <strong>Unida Christian Colleges</strong>
+          <span>Enrollment Portal</span>
         </div>
-        <div class="brand-credit">Unida Christian Colleges · Admissions &amp; Guidance Office</div>
-      </aside>
-
-      <div class="auth-form">
-        <div class="auth-form-head">
-          <h2>Welcome back</h2>
-          <p>Sign in with your school account to continue.</p>
-        </div>
-
-        <div class="auth-tabs">
-          <button class="auth-tab active" data-action="authTab" data-tab="login">Sign In</button>
-          <button class="auth-tab" data-action="authTab" data-tab="register">Register</button>
-        </div>
-
-        <form id="loginForm">
-          <div class="field"><label>Email</label><input type="email" name="email" autocomplete="email" placeholder="you@unida.edu.ph" required></div>
-          <div class="field"><label>Password</label><input type="password" name="password" autocomplete="current-password" placeholder="Enter your password" required></div>
-          <button class="btn btn-primary btn-block" type="submit">Sign In</button>
-        </form>
-
-        <form id="registerForm" class="hidden">
-          <div class="field"><label>Full Name</label><input type="text" name="name" autocomplete="name" placeholder="Juan Dela Cruz" required></div>
-          <div class="field"><label>Email</label><input type="email" name="email" autocomplete="email" placeholder="you@email.com" required></div>
-          <div class="field"><label>Password</label><input type="password" name="password" autocomplete="new-password" placeholder="At least 6 characters" required></div>
-          <button class="btn btn-primary btn-block" type="submit">Create Account</button>
-        </form>
-
-        <p class="auth-note">New students can create an account with the <strong>Register</strong> tab.</p>
       </div>
+      <div class="auth-topbar-meta">Admissions &amp; Registrar</div>
+    </header>
+
+    <div class="auth-hero">
+      <div class="auth-hero-inner">
+        <div class="auth-card">
+          <div class="auth-form-head">
+            <h2>Sign in</h2>
+            <p>Use your school account to continue.</p>
+          </div>
+
+          <div class="auth-tabs">
+            <button class="auth-tab active" data-action="authTab" data-tab="login">Sign In</button>
+            <button class="auth-tab" data-action="authTab" data-tab="register">Register</button>
+          </div>
+
+          <form id="loginForm">
+            <div class="field"><label>Email</label><input type="email" name="email" autocomplete="email" placeholder="you@unida.edu.ph" required></div>
+            <div class="field"><label>Password</label><input type="password" name="password" autocomplete="current-password" placeholder="Enter your password" required></div>
+            <button class="btn btn-primary btn-block" type="submit">Sign In</button>
+          </form>
+
+          <form id="registerForm" class="hidden">
+            <div class="field"><label>Full Name</label><input type="text" name="name" autocomplete="name" placeholder="Juan Dela Cruz" required></div>
+            <div class="field"><label>Email</label><input type="email" name="email" autocomplete="email" placeholder="you@email.com" required></div>
+            <div class="field"><label>Password</label><input type="password" name="password" autocomplete="new-password" placeholder="At least 6 characters" required></div>
+            <button class="btn btn-primary btn-block" type="submit">Create Account</button>
+          </form>
+
+          <div class="auth-foot">New students can create an account with the <strong>Register</strong> tab.</div>
+        </div>
+      </div>
+      <div class="auth-hero-foot">Unida Christian Colleges · Admissions and Guidance Office</div>
     </div>
   `;
 }
 
 // --- ADMIN LAYOUT ---
+const ADMIN_VIEWS = {
+  dashboard: { label: 'Dashboard', sub: 'System-wide overview' },
+  students: { label: 'Students', sub: 'Registrar records' },
+  courses: { label: 'Subjects', sub: 'Curriculum' },
+  presets: { label: 'Preset Subjects', sub: 'Curriculum' },
+  prereqs: { label: 'Prerequisite Subjects', sub: 'Curriculum' },
+  faculty: { label: 'Faculty Check', sub: 'Assign student subjects' },
+  logs: { label: 'Payment Logs', sub: 'Accounting' },
+  payments: { label: 'Student Payments', sub: 'Accounting' },
+  fees: { label: 'Fee Settings', sub: 'Accounting' }
+};
+
 async function renderAdminLayout() {
   const pageWrap = $('#pageWrap');
   pageWrap.className = 'role-page-wrap'; // Enforces full flush width
   $('#navbar').classList.add('hidden');
   pageWrap.classList.remove('hidden');
-  
+
+  const view = window.currentView && ADMIN_VIEWS[window.currentView] ? window.currentView : 'dashboard';
+  window.currentView = view;
+  const meta = ADMIN_VIEWS[view];
+
+  const navBtn = (id) => `
+    <button class="role-nav-item ${view === id ? 'active' : ''}" onclick="window.setAdminView('${id}')">${ADMIN_VIEWS[id].label}</button>
+  `;
+
   pageWrap.innerHTML = `
     <div class="role-shell">
       <aside class="role-sidebar">
-        <div class="role-side-brand"><strong>Admin Portal</strong><span>Registrar</span></div>
+        <div class="role-side-brand"><strong>Admin Portal</strong><span>Full system access</span></div>
         <nav class="role-nav">
-          <button class="role-nav-item ${window.currentView === 'dashboard' ? 'active' : ''}" onclick="window.setAdminView('dashboard')"><span class="rni">🏠</span> Dashboard</button>
-          <button class="role-nav-item ${window.currentView === 'students' ? 'active' : ''}" onclick="window.setAdminView('students')"><span class="rni">👥</span> Students</button>
-          <button class="role-nav-item ${window.currentView === 'courses' ? 'active' : ''}" onclick="window.setAdminView('courses')"><span class="rni">📚</span> Courses</button>
-          <button class="role-nav-item ${window.currentView === 'enrollments' ? 'active' : ''}" onclick="window.setAdminView('enrollments')"><span class="rni">📝</span> Final Approvals</button>
+          ${navBtn('dashboard')}
+          <div class="role-nav-group">Records</div>
+          ${navBtn('students')}
+          <div class="role-nav-group">Curriculum</div>
+          ${navBtn('courses')}
+          ${navBtn('presets')}
+          ${navBtn('prereqs')}
+          <div class="role-nav-group">Enrollment</div>
+          ${navBtn('faculty')}
+          <div class="role-nav-group">Finance</div>
+          ${navBtn('logs')}
+          ${navBtn('payments')}
+          ${navBtn('fees')}
         </nav>
         <div class="role-side-foot"><button onclick="window.logout()">Sign out</button></div>
       </aside>
       <div class="role-main">
         <header class="role-topbar">
-          <div><h1>${window.currentView ? window.currentView.toUpperCase() : 'DASHBOARD'}</h1><div class="rt-sub">Manage system data</div></div>
+          <div><h1>${esc(meta.label)}</h1><div class="rt-sub">${esc(meta.sub)}</div></div>
           <div class="rt-user"><div class="rt-who"><strong>${esc(session.name)}</strong><span>Admin</span></div><div class="rt-avatar">${initials(session.name)}</div></div>
         </header>
         <div class="role-content" id="adminContent"><div class="rp-empty">Loading...</div></div>
@@ -207,15 +248,24 @@ async function renderAdminLayout() {
   `;
 
   const content = $('#adminContent');
-  const view = window.currentView || 'dashboard';
 
   if (view === 'dashboard') content.innerHTML = await renderAdminDashboard();
-  else if (view === 'students') content.innerHTML = await renderAdminStudents();
-  else if (view === 'courses') content.innerHTML = await renderAdminCourses();
-  else if (view === 'enrollments') content.innerHTML = await renderAdminEnrollments();
+  else if (view === 'students') content.innerHTML = await renderRegistrarStudents();
+  else if (view === 'courses') content.innerHTML = await renderRegistrarCourses();
+  else if (view === 'presets') content.innerHTML = await renderRegistrarPresets();
+  else if (view === 'prereqs') content.innerHTML = await renderRegistrarPrereqs();
+  else if (view === 'faculty') content.innerHTML = await renderFacultyProgress();
+  else if (view === 'logs') content.innerHTML = await renderAccountingLogs();
+  else if (view === 'payments') content.innerHTML = await renderAccountingStudents();
+  else if (view === 'fees') content.innerHTML = await renderAccountingSettings();
 }
 
-window.setAdminView = (view) => { window.currentView = view; renderAll(); };
+window.setAdminView = (view) => {
+  window.currentView = view;
+  window.facultySelectedStudent = null;
+  window.tempStudentSubjects = [];
+  renderAll();
+};
 
 // --- FACULTY LAYOUT ---
 async function renderFacultyLayout() {
@@ -223,14 +273,14 @@ async function renderFacultyLayout() {
   pageWrap.className = 'role-page-wrap'; // Enforces full flush width
   $('#navbar').classList.add('hidden');
   pageWrap.classList.remove('hidden');
-  
+
   pageWrap.innerHTML = `
     <div class="role-shell">
       <aside class="role-sidebar">
         <div class="role-side-brand"><strong>Faculty Portal</strong><span>College Department</span></div>
         <nav class="role-nav">
-          <button class="role-nav-item ${window.currentView === 'dashboard' ? 'active' : ''}" onclick="window.setFacultyView('dashboard')"><span class="rni">🏠</span> Dashboard</button>
-          <button class="role-nav-item ${window.currentView === 'progress' ? 'active' : ''}" onclick="window.setFacultyView('progress')"><span class="rni">🔍</span> Check Students</button>
+          <button class="role-nav-item ${window.currentView === 'dashboard' ? 'active' : ''}" onclick="window.setFacultyView('dashboard')">Dashboard</button>
+          <button class="role-nav-item ${window.currentView === 'progress' ? 'active' : ''}" onclick="window.setFacultyView('progress')">Check Students</button>
         </nav>
         <div class="role-side-foot"><button onclick="window.logout()">Sign out</button></div>
       </aside>
@@ -251,11 +301,11 @@ async function renderFacultyLayout() {
   else if (view === 'progress') content.innerHTML = await renderFacultyProgress();
 }
 
-window.setFacultyView = (view) => { 
-  window.currentView = view; 
-  window.facultySelectedStudent = null; 
+window.setFacultyView = (view) => {
+  window.currentView = view;
+  window.facultySelectedStudent = null;
   window.tempStudentSubjects = [];
-  renderAll(); 
+  renderAll();
 };
 
 window.closeFacultyStudent = () => {
@@ -270,16 +320,16 @@ async function renderAccountingLayout() {
   pageWrap.className = 'role-page-wrap'; // Enforces full flush width
   $('#navbar').classList.add('hidden');
   pageWrap.classList.remove('hidden');
-  
+
   pageWrap.innerHTML = `
     <div class="role-shell">
       <aside class="role-sidebar">
         <div class="role-side-brand"><strong>Accounting Dept</strong><span>Finance</span></div>
         <nav class="role-nav">
-          <button class="role-nav-item ${window.currentView === 'dashboard' ? 'active' : ''}" onclick="window.setAccountingView('dashboard')"><span class="rni">🏠</span> Dashboard</button>
-          <button class="role-nav-item ${window.currentView === 'logs' ? 'active' : ''}" onclick="window.setAccountingView('logs')"><span class="rni">🧾</span> Payment Logs</button>
-          <button class="role-nav-item ${window.currentView === 'students' ? 'active' : ''}" onclick="window.setAccountingView('students')"><span class="rni">👥</span> Student Payments</button>
-          <button class="role-nav-item ${window.currentView === 'settings' ? 'active' : ''}" onclick="window.setAccountingView('settings')"><span class="rni">⚙️</span> Fee Settings</button>
+          <button class="role-nav-item ${window.currentView === 'dashboard' ? 'active' : ''}" onclick="window.setAccountingView('dashboard')">Dashboard</button>
+          <button class="role-nav-item ${window.currentView === 'logs' ? 'active' : ''}" onclick="window.setAccountingView('logs')">Payment Logs</button>
+          <button class="role-nav-item ${window.currentView === 'students' ? 'active' : ''}" onclick="window.setAccountingView('students')">Student Payments</button>
+          <button class="role-nav-item ${window.currentView === 'settings' ? 'active' : ''}" onclick="window.setAccountingView('settings')">Fee Settings</button>
         </nav>
         <div class="role-side-foot"><button onclick="window.logout()">Sign out</button></div>
       </aside>
@@ -310,16 +360,17 @@ async function renderRegistrarLayout() {
   pageWrap.className = 'role-page-wrap'; // Enforces full flush width
   $('#navbar').classList.add('hidden');
   pageWrap.classList.remove('hidden');
-  
+
   pageWrap.innerHTML = `
     <div class="role-shell">
       <aside class="role-sidebar">
         <div class="role-side-brand"><strong>Registrar Portal</strong><span>Records & Curriculum</span></div>
         <nav class="role-nav">
-          <button class="role-nav-item ${window.currentView === 'dashboard' ? 'active' : ''}" onclick="window.setRegistrarView('dashboard')"><span class="rni">🏠</span> Dashboard</button>
-          <button class="role-nav-item ${window.currentView === 'students' ? 'active' : ''}" onclick="window.setRegistrarView('students')"><span class="rni">👥</span> Student Management</button>
-          <button class="role-nav-item ${window.currentView === 'presets' ? 'active' : ''}" onclick="window.setRegistrarView('presets')"><span class="rni">🧩</span> Preset Subjects</button>
-          <button class="role-nav-item ${window.currentView === 'courses' ? 'active' : ''}" onclick="window.setRegistrarView('courses')"><span class="rni">📚</span> Manage Subjects</button>
+          <button class="role-nav-item ${window.currentView === 'dashboard' ? 'active' : ''}" onclick="window.setRegistrarView('dashboard')">Dashboard</button>
+          <button class="role-nav-item ${window.currentView === 'students' ? 'active' : ''}" onclick="window.setRegistrarView('students')">Student Management</button>
+          <button class="role-nav-item ${window.currentView === 'presets' ? 'active' : ''}" onclick="window.setRegistrarView('presets')">Preset Subjects</button>
+          <button class="role-nav-item ${window.currentView === 'prereqs' ? 'active' : ''}" onclick="window.setRegistrarView('prereqs')">Prerequisite Subjects</button>
+          <button class="role-nav-item ${window.currentView === 'courses' ? 'active' : ''}" onclick="window.setRegistrarView('courses')">Manage Subjects</button>
         </nav>
         <div class="role-side-foot"><button onclick="window.logout()">Sign out</button></div>
       </aside>
@@ -339,6 +390,7 @@ async function renderRegistrarLayout() {
   if (view === 'dashboard') content.innerHTML = await renderRegistrarDashboard();
   else if (view === 'students') content.innerHTML = await renderRegistrarStudents();
   else if (view === 'presets') content.innerHTML = await renderRegistrarPresets();
+  else if (view === 'prereqs') content.innerHTML = await renderRegistrarPrereqs();
   else if (view === 'courses') content.innerHTML = await renderRegistrarCourses();
 }
 
@@ -352,12 +404,14 @@ window.tempDeletedPSIds = [];
 window.tempRegPresetSubjects = [];
 window.tempRegPresetId = null;
 window.tempRegDeletedPSIds = [];
+window.tempRegPrereqSubjects = [];
+window.tempRegPrereqId = null;
 
 window.tempAddSubject = (studentId) => {
   const sel = document.querySelector('#facultyAddSubjectForm select[name="course_id"]');
   if (!sel.value) return toast('Select a subject first', 'error');
   const courseId = Number(sel.value);
-  
+
   if (window.tempStudentSubjects.some(s => String(s.courseId) === String(courseId))) {
     return toast('Subject is already in the list.', 'error');
   }
@@ -369,18 +423,47 @@ window.tempAddSubject = (studentId) => {
   const units = text.match(/\((\d+)\s*units\)/)[1];
 
   window.tempStudentSubjects.push({ courseId, code, title, units });
-  renderAll(); 
+  renderAll();
 };
 
 window.removeTempSubject = (idx) => {
   window.tempStudentSubjects.splice(idx, 1);
-  renderAll(); 
+  renderAll();
 };
 
 window.confirmStudentSubjects = async (studentId) => {
   if (!window.tempStudentSubjects.length) return;
-  
+
   try {
+    // Enforce prerequisite sequences before anything is written.
+    const [recorded, presetRows, courses] = await Promise.all([
+      supa('student_subjects', { match: { user_id: Number(studentId) } }).catch(() => []),
+      supa('presets').catch(() => []),
+      supa('courses').catch(() => [])
+    ]);
+
+    const prereqSets = hydratePrereqSets(presetRows.map(decodePrereqSet).filter(Boolean), courses);
+    const passedIds = recorded
+      .filter(s => String(s.remarks || '').trim() === 'Passed')
+      .map(s => s.course_id);
+
+    const problems = evaluatePrerequisites({
+      selectedIds: window.tempStudentSubjects.map(s => s.courseId),
+      passedIds,
+      sets: prereqSets,
+      courses
+    });
+
+    if (problems.size) {
+      const codeById = new Map(courses.map(c => [String(c.id), c.code]));
+      window.facultyPrereqErrors = [...problems.entries()].map(([courseId, missing]) =>
+        `${codeById.get(String(courseId)) || 'Subject'} — ${missingLabel(missing)}`);
+      renderAll();
+      return toast('Cannot confirm subjects: the prerequisite sequence is broken.', 'error');
+    }
+
+    window.facultyPrereqErrors = [];
+
     for (const sub of window.tempStudentSubjects) {
       await supa('student_subjects', { method: 'POST', body: { user_id: Number(studentId), course_id: Number(sub.courseId), status: 'Enrolled' } });
     }
@@ -419,7 +502,7 @@ window.facultyLoadPresetToTemp = async (presetId) => {
         addedCount++;
       }
     }
-    
+
     if (addedCount > 0) {
       toast(`Added ${addedCount} subjects to the pending list.`);
     } else {
@@ -427,7 +510,7 @@ window.facultyLoadPresetToTemp = async (presetId) => {
         ? `No new subjects to add — ${skippedCount} already taken or in the list.`
         : 'No new subjects to add (already in list or confirmed).', 'warn');
     }
-    
+
     renderAll();
   } catch (err) {
     console.error(err);
@@ -468,6 +551,9 @@ document.addEventListener('click', async (e) => {
   if (action === 'gotoStep') { window.currentStep = Number(btn.dataset.step); renderAll(); return; }
   if (action === 'continueApp') { window.currentStep = 1; window.currentView = 'apply'; renderAll(); return; }
 
+  if (action === 'createReport') { if (window.createReportTable) window.createReportTable(btn.dataset.report); return; }
+  if (action === 'downloadReport') { if (window.downloadReport) window.downloadReport(btn.dataset.report); return; }
+
   if (action === 'chooseDocType') {
     const type = btn.dataset.type;
     const user = session;
@@ -489,24 +575,24 @@ document.addEventListener('click', async (e) => {
   if (action === 'submitApplication') {
     const chk = $('#certifyCheck');
     if (!chk || !chk.checked) return toast('Please certify your information.', 'error');
-    
+
     // Validation: Check if required docs are uploaded
     const apps = await supa('applications', { match: { user_id: session.userId } });
     const app = apps[0];
     const docType = app.doc_type;
-    
+
     if (docType === 'freshman') {
       const required = ['form138', 'psa', 'idpic', 'goodmoral', 'exam'];
       const missing = required.filter(id => !app.documents || !app.documents[id]);
       if (missing.length > 0) return toast('Please upload all required documents.', 'error');
     } else if (docType === 'transferee') {
        const required = ['transfer_cred', 'tor', 'goodmoral_prev', 'psa', 'idpic'];
-       const missing = required.filter(id => !app.documents || !app.documents[id]);
-       if (missing.length > 0) return toast('Please upload all required documents.', 'error');
+      const missing = required.filter(id => !app.documents || !app.documents[id]);
+      if (missing.length > 0) return toast('Please upload all required documents.', 'error');
     } else if (docType === 'returnee') {
        const required = ['readmission', 'clearance'];
-       const missing = required.filter(id => !app.documents || !app.documents[id]);
-       if (missing.length > 0) return toast('Please upload all required documents.', 'error');
+      const missing = required.filter(id => !app.documents || !app.documents[id]);
+      if (missing.length > 0) return toast('Please upload all required documents.', 'error');
     }
 
     await supa('applications', { method: 'PATCH', match: { user_id: session.userId }, body: { submitted: true, returned: false, reference: 'UCC-' + Date.now().toString().slice(-8), status: 'Pending Review' } });
@@ -516,7 +602,7 @@ document.addEventListener('click', async (e) => {
 
   if (action === 'facultyManageStudent') {
     window.facultySelectedStudent = Number(btn.dataset.id);
-    window.tempStudentSubjects = []; 
+    window.tempStudentSubjects = [];
     renderAll();
     return;
   }
@@ -554,6 +640,61 @@ document.addEventListener('click', async (e) => {
 
   if (action === 'regEditCourse') {
     await regEditCourseModal(Number(btn.dataset.id));
+    return;
+  }
+
+  if (action === 'regCreatePrereq') {
+    await regEditPrereqModal(null);
+    return;
+  }
+
+  if (action === 'regEditPrereq') {
+    await regEditPrereqModal(Number(btn.dataset.id));
+    return;
+  }
+
+  if (action === 'regSavePrereq') {
+    const id = document.getElementById('reg_prereq_id').value;
+    const title = document.getElementById('reg_prereq_title').value.trim();
+    const prog = document.getElementById('reg_prereq_prog').value;
+    const year = document.getElementById('reg_prereq_year').value;
+    const sem = document.getElementById('reg_prereq_sem').value;
+    const subjects = window.tempRegPrereqSubjects || [];
+
+    if (!title) return toast('A title is required.', 'error');
+    if (subjects.length < 2) return toast('Add at least two subjects to form a sequence.', 'error');
+
+    const payload = {
+      name: encodePrereqName(title, subjects.map(s => s.id)),
+      program_id: Number(prog),
+      year_level: Number(year),
+      semester: sem
+    };
+
+    try {
+      if (id) {
+        await supa('presets', { method: 'PATCH', match: { id: Number(id) }, body: payload });
+      } else {
+        await supa('presets', { method: 'POST', body: payload });
+      }
+      toast('Prerequisite set saved.');
+      document.getElementById('regPrereqModal')?.remove();
+      renderAll();
+    } catch (err) {
+      console.error(err);
+      toast('Failed to save the prerequisite set.', 'error');
+    }
+    return;
+  }
+
+  if (action === 'regDeletePrereq') {
+    const id = Number(btn.dataset.id);
+    if (!confirm('Delete this prerequisite set?')) return;
+    try {
+      await supa('presets', { method: 'DELETE', match: { id } });
+      toast('Prerequisite set deleted.');
+      renderAll();
+    } catch (err) { toast('Failed to delete.', 'error'); }
     return;
   }
 
@@ -658,32 +799,6 @@ document.addEventListener('click', async (e) => {
     return;
   }
 
-  // ADMIN ACTIONS
-  if (action === 'adminOpenStudent') {
-    await adminOpenStudentModal(Number(btn.dataset.id)); return;
-  }
-
-  if (action === 'adminRemoveSubject') {
-    const subjectId = Number(btn.dataset.id);
-    const userId = Number(btn.dataset.user);
-    try {
-      await supa('student_subjects', { method: 'DELETE', match: { id: subjectId } });
-      toast('Subject record removed.');
-      await adminOpenStudentModal(userId); 
-    } catch (err) { toast('Failed to delete subject.', 'error'); }
-    return;
-  }
-
-  if (action === 'adminApproveEnrollment') {
-    const userId = Number(btn.dataset.id);
-    try {
-      await supa('applications', { method: 'PATCH', match: { user_id: userId }, body: { status: 'Approved' } });
-      toast('Student officially enrolled!');
-      renderAll();
-    } catch (err) { toast('Failed to approve.', 'error'); }
-    return;
-  }
-
   // ACCOUNTING ACTIONS
   if (action === 'accManageStudent') {
     await accountingManageStudentModal(Number(btn.dataset.id));
@@ -708,6 +823,8 @@ document.addEventListener('change', async (e) => {
   }
   else if (key === 'regPresetFilterProg') { window.regPresetFilterProg = e.target.value; renderAll(); }
   else if (key === 'regPresetFilterYear') { window.regPresetFilterYear = e.target.value; renderAll(); }
+  else if (key === 'regPrereqFilterProg') { window.regPrereqFilterProg = e.target.value; renderAll(); }
+  else if (key === 'regPrereqFilterYear') { window.regPrereqFilterYear = e.target.value; renderAll(); }
   else if (key === 'regCourseFilterProg') { window.regCourseFilterProg = e.target.value; renderAll(); }
   else if (key === 'regFilterProg') { window.regFilterProg = e.target.value; renderAll(); }
   else if (key === 'regFilterYear') { window.regFilterYear = e.target.value; renderAll(); }
@@ -716,13 +833,13 @@ document.addEventListener('change', async (e) => {
     const studentId = Number(e.target.dataset.student);
     const docId = e.target.dataset.doc;
     const newStatus = e.target.value;
-    
+
     try {
       const apps = await supa('applications', { match: { user_id: studentId } });
       const app = apps[0];
       const docStatus = app.doc_status || {};
       docStatus[docId] = newStatus;
-      
+
       await supa('applications', { method: 'PATCH', match: { user_id: studentId }, body: { doc_status: docStatus } });
       toast('Document status updated.');
     } catch (err) { toast('Failed to update document status', 'error'); }
@@ -732,7 +849,7 @@ document.addEventListener('change', async (e) => {
 // --- GLOBAL FORMS ---
 document.addEventListener('submit', async (e) => {
   e.preventDefault();
-  
+
   if (e.target.id === 'loginForm') { await doLogin(e.target, () => { window.currentView = 'dashboard'; renderAll(); }); return; }
   if (e.target.id === 'registerForm') { await doRegister(e.target, () => { window.currentView = 'dashboard'; renderAll(); }); return; }
 
@@ -776,12 +893,12 @@ document.addEventListener('submit', async (e) => {
     const fd = new FormData(e.target);
     const userId = Number(fd.get('user_id'));
     const feedback = fd.get('feedback');
-    
+
     try {
-      await supa('applications', { 
-        method: 'PATCH', 
-        match: { user_id: userId }, 
-        body: { returned: true, submitted: false, registrar_feedback: feedback } 
+      await supa('applications', {
+        method: 'PATCH',
+        match: { user_id: userId },
+        body: { returned: true, submitted: false, registrar_feedback: feedback }
       });
       toast('Application returned to student.');
       document.getElementById('regStudentModal')?.remove();
@@ -844,7 +961,7 @@ document.addEventListener('submit', async (e) => {
     const userId = Number(fd.get('user_id'));
     const amount = Number(fd.get('amount'));
     const currentPaid = Number(fd.get('current_paid'));
-    
+
     if (amount <= 0) return toast('Amount must be greater than 0', 'error');
 
     try {
@@ -852,7 +969,7 @@ document.addEventListener('submit', async (e) => {
       const refNo = 'PAY-ACC-' + Date.now().toString().slice(-6);
 
       await supa('applications', { method: 'PATCH', match: { user_id: userId }, body: { amount_paid: newPaid } });
-      
+
       await supa('payment_logs', {
         method: 'POST',
         body: {
@@ -891,7 +1008,10 @@ window.regFilterYear = '';
 window.regFilterStatus = '';
 window.regPresetFilterProg = 'all';
 window.regPresetFilterYear = 'all';
+window.regPrereqFilterProg = 'all';
+window.regPrereqFilterYear = 'all';
 window.regCourseFilterProg = 'all';
 window.facultySelectedStudent = null;
+window.facultyPrereqErrors = [];
 window.accSearch = '';
 renderAll();

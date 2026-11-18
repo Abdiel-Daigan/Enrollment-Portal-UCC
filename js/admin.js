@@ -1,215 +1,142 @@
-import { esc, toast } from './utils.js';
+import { esc, isHistorySubject } from './utils.js';
 import { supa } from './api.js';
+import { docsComplete } from './registrar.js';
+import { decodePrereqSet, isPrereqRow } from './prereqs.js';
+import { reportCard } from './report.js';
+
+const PROGRAMS = { '0': 'General', '1': 'BEEd', '2': 'BSEd', '8': 'BSCS' };
 
 export async function renderAdminDashboard() {
-  const students = await supa('users', { match: { role: 'student' } });
-  const apps = await supa('applications');
-  const enrollments = await supa('enrollments');
+  const [students, apps, courses, presetRows, subjectRows, logRows] = await Promise.all([
+    supa('users', { match: { role: 'student' } }).catch(() => []),
+    supa('applications').catch(() => []),
+    supa('courses').catch(() => []),
+    supa('presets').catch(() => []),
+    supa('student_subjects').catch(() => []),
+    supa('payment_logs').catch(() => [])
+  ]);
 
-  const submitted = apps.filter(a => a.submitted).length;
-  const pending = students.length - submitted;
+  const presets = presetRows.filter(p => !isPrereqRow(p));
+  const prereqSets = presetRows.map(decodePrereqSet).filter(Boolean);
+  const submitted = apps.filter(a => a.submitted && !a.returned);
+  const verified = submitted.filter(docsComplete).length;
+  const enrolled = apps.filter(a => a.status === 'Approved').length;
+  const verifiedStudentIds = new Set(submitted.filter(docsComplete).map(a => String(a.user_id)));
+  const withSubjects = new Set(subjectRows.filter(s => !isHistorySubject(s)).map(s => String(s.user_id)));
+  const loadedUnits = subjectRows
+    .filter(s => !isHistorySubject(s))
+    .reduce((sum, s) => {
+      const c = courses.find(x => String(x.id) === String(s.course_id));
+      return sum + (c ? Number(c.units) : 0);
+    }, 0);
+  const collected = logRows.reduce((sum, l) => sum + Number(l.amount || 0), 0);
+
+  const programRows = Object.entries(PROGRAMS).filter(([id]) => id !== '0').map(([id, name]) => {
+    const ofProgram = apps.filter(a => {
+      let pr = a.program || {};
+      if (typeof pr === 'string') { try { pr = JSON.parse(pr); } catch (e) { pr = {}; } }
+      return String(pr.preferred) === String(id);
+    });
+    return [
+      name,
+      ofProgram.length,
+      ofProgram.filter(a => a.submitted && !a.returned).length,
+      ofProgram.filter(docsComplete).length,
+      ofProgram.filter(a => a.status === 'Approved').length
+    ];
+  });
+
+  const rosterRows = students.map(u => {
+    const app = apps.find(a => String(a.user_id) === String(u.id)) || {};
+    let pr = app.program || {};
+    if (typeof pr === 'string') { try { pr = JSON.parse(pr); } catch (e) { pr = {}; } }
+    const load = subjectRows.filter(s => String(s.user_id) === String(u.id) && !isHistorySubject(s));
+    const units = load.reduce((sum, s) => {
+      const c = courses.find(x => String(x.id) === String(s.course_id));
+      return sum + (c ? Number(c.units) : 0);
+    }, 0);
+    return [
+      u.name,
+      u.student_id || '-',
+      PROGRAMS[pr.preferred] || 'Not set',
+      pr.year_level ? 'Year ' + pr.year_level : '-',
+      app.status === 'Approved' ? 'Enrolled' : (app.submitted ? 'Applicant' : 'In Progress'),
+      app.doc_type ? (docsComplete(app) ? 'Complete' : 'Incomplete') : 'No checklist',
+      load.length,
+      units,
+      Number(app.amount_paid || 0).toFixed(2)
+    ];
+  });
+
+  const paymentRows = students.map(u => {
+    const app = apps.find(a => String(a.user_id) === String(u.id)) || {};
+    const logs = logRows.filter(l => String(l.user_id) === String(u.id));
+    const paid = logs.reduce((sum, l) => sum + Number(l.amount || 0), 0);
+    const last = logs.slice().sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0))[0];
+    return [
+      u.name,
+      u.student_id || '-',
+      logs.length,
+      paid.toFixed(2),
+      Number(app.amount_paid || 0).toFixed(2),
+      last ? new Date(last.created_at).toLocaleDateString('en-PH') : '-'
+    ];
+  });
 
   return `
     <div class="rp-grid-4">
-      <div class="rp-card rp-stat"><div class="ic">👥</div><div><div class="val">${students.length}</div><div class="lbl">Total Students</div></div></div>
-      <div class="rp-card rp-stat gold"><div class="ic">✅</div><div><div class="val">${submitted}</div><div class="lbl">Submitted Apps</div></div></div>
-      <div class="rp-card rp-stat"><div class="ic">⏳</div><div><div class="val">${pending}</div><div class="lbl">In Progress</div></div></div>
-      <div class="rp-card rp-stat gold"><div class="ic">📝</div><div><div class="val">${enrollments.length}</div><div class="lbl">Enrollments</div></div></div>
-    </div>
-    <div class="rp-card">
-      <h3>Welcome to the Admin Portal</h3>
-      <p class="rp-hint" style="margin-top:10px;">Use the sidebar to manage students, courses, and approve final enrollments.</p>
-    </div>
-  `;
-}
-
-export async function renderAdminStudents() {
-  const users = await supa('users', { match: { role: 'student' } });
-  const apps = await supa('applications');
-
-  return `
-    <div class="rp-table-wrap">
-      <table class="rp-table">
-        <thead><tr><th>Name</th><th>Email</th><th>Status</th><th style="text-align:right">Actions</th></tr></thead>
-        <tbody>
-          ${users.length ? users.map(u => {
-            const app = apps.find(a => String(a.user_id) === String(u.id)) || {};
-            return `
-              <tr>
-                <td><strong>${esc(u.name)}</strong></td>
-                <td>${esc(u.email)}</td>
-                <td><span class="rp-badge ${app.status === 'Approved' ? 'green' : (app.submitted ? 'gold' : 'grey')}">${app.status || (app.submitted ? 'Pending' : 'In Progress')}</span></td>
-                <td style="text-align:right">
-                  <button class="rp-btn rp-btn-primary rp-btn-sm" data-action="adminOpenStudent" data-id="${u.id}">Manage</button>
-                </td>
-              </tr>
-            `;
-          }).join('') : '<tr><td colspan="4" class="rp-empty">No students found.</td></tr>'}
-        </tbody>
-      </table>
-    </div>
-  `;
-}
-
-export async function renderAdminCourses() {
-  const courses = await supa('courses');
-  return `
-    <div class="rp-table-wrap">
-      <table class="rp-table">
-        <thead><tr><th>Code</th><th>Title</th><th>Units</th><th>Program ID</th></tr></thead>
-        <tbody>
-          ${courses.length ? courses.map(c => `
-            <tr>
-              <td><strong>${esc(c.code)}</strong></td>
-              <td>${esc(c.title)}</td>
-              <td>${c.units}</td>
-              <td>${esc(c.program_id)}</td>
-            </tr>
-          `).join('') : '<tr><td colspan="4" class="rp-empty">No courses found.</td></tr>'}
-        </tbody>
-      </table>
-    </div>
-  `;
-}
-
-export async function renderAdminEnrollments() {
-  const apps = await supa('applications');
-  const users = await supa('users', { match: { role: 'student' } });
-  
-  const submittedApps = apps.filter(a => a.submitted);
-
-  return `
-    <div class="rp-notice mint">
-      <span>ℹ️</span>
-      <span>Review final enrollment applications. Faculty must have approved the payment first.</span>
+      <div class="rp-card rp-stat"><div class="ic">ST</div><div><div class="val">${students.length}</div><div class="lbl">Total Students</div></div></div>
+      <div class="rp-card rp-stat gold"><div class="ic">SA</div><div><div class="val">${submitted.length}</div><div class="lbl">Submitted Applications</div></div></div>
+      <div class="rp-card rp-stat"><div class="ic">DV</div><div><div class="val">${verified}</div><div class="lbl">Documents Verified</div></div></div>
+      <div class="rp-card rp-stat gold"><div class="ic">EN</div><div><div class="val">${enrolled}</div><div class="lbl">Officially Enrolled</div></div></div>
     </div>
 
-    <div class="rp-table-wrap">
-      <table class="rp-table">
-        <thead><tr><th>Student</th><th>Reference</th><th>Status</th><th style="text-align:right">Actions</th></tr></thead>
-        <tbody>
-          ${submittedApps.length ? submittedApps.map(app => {
-            const u = users.find(x => String(x.id) === String(app.user_id)) || { name: 'Unknown' };
-            const isApproved = app.status === 'Approved';
-            
-            return `
-              <tr>
-                <td><strong>${esc(u.name)}</strong></td>
-                <td>${esc(app.reference || '—')}</td>
-                <td><span class="rp-badge ${isApproved ? 'green' : 'gold'}">${esc(app.status || 'Pending')}</span></td>
-                <td style="text-align:right">
-                  ${!isApproved 
-                    ? `<button class="rp-btn rp-btn-primary rp-btn-sm" data-action="adminApproveEnrollment" data-id="${app.user_id}">Final Approve</button>`
-                    : `<span class="rp-badge green">Officially Enrolled</span>`}
-                </td>
-              </tr>
-            `;
-          }).join('') : '<tr><td colspan="4" class="rp-empty">No submitted applications.</td></tr>'}
-        </tbody>
-      </table>
+    <div class="rp-grid-4">
+      <div class="rp-card rp-stat"><div class="ic">SB</div><div><div class="val">${courses.length}</div><div class="lbl">Subjects</div></div></div>
+      <div class="rp-card rp-stat"><div class="ic">PR</div><div><div class="val">${presets.length}</div><div class="lbl">Presets</div></div></div>
+      <div class="rp-card rp-stat"><div class="ic">PQ</div><div><div class="val">${prereqSets.length}</div><div class="lbl">Prerequisite Sequences</div></div></div>
+      <div class="rp-card rp-stat gold"><div class="ic">LO</div><div><div class="val">${withSubjects.size}</div><div class="lbl">Students With Subject Load</div></div></div>
     </div>
-  `;
-}
 
-export async function adminOpenStudentModal(userId) {
-  try {
-    const users = await supa('users', { match: { id: userId } });
-    const u = users && users[0];
-    if (!u) return toast('Student not found.', 'error');
-
-    const apps = await supa('applications', { match: { user_id: userId } });
-    const app = (apps && apps[0]) || {};
-
-    const subjects = await supa('student_subjects', { match: { user_id: userId } }).catch(() => []);
-    const courses = await supa('courses').catch(() => []);
-
-    const p = app.personal || {};
-    let pr = app.program || {};
-    if (typeof pr === 'string') { try { pr = JSON.parse(pr); } catch (err) {} }
-
-    const fullName = p.first_name ? `${p.first_name} ${p.middle_name || ''} ${p.last_name || ''}`.trim() : u.name;
-
-    const subjectRows = subjects.map((s) => {
-      const c = courses.find((x) => String(x.id) === String(s.course_id));
-      let badge = '';
-      if (s.status === 'Taken') badge = '<span class="rp-badge green">Taken</span>';
-      else if (s.status === 'Enrolled') badge = '<span class="rp-badge gold">Enrolled</span>';
-      else badge = '<span class="rp-badge grey">Unenrolled</span>';
-
-      return `
-        <tr>
-          <td><strong>${esc(c ? c.code : '—')}</strong> ${esc(c ? c.title : '')}</td>
-          <td>${badge}</td>
-          <td style="text-align:right">
-            <button class="rp-btn rp-btn-danger rp-btn-sm" data-action="adminRemoveSubject" data-id="${s.id}" data-user="${userId}">Delete</button>
-          </td>
-        </tr>`;
-    }).join('');
-
-    const modalHtml = `
-      <div class="rp-modal-backdrop" id="adminModalBackdrop">
-        <div class="rp-modal wide">
-          <div class="rp-modal-head">
-            <h3>Manage Student — ${esc(fullName)}</h3>
-            <button class="rp-btn rp-btn-ghost rp-btn-sm" onclick="document.getElementById('adminModalBackdrop').remove()">✕</button>
-          </div>
-          <div class="rp-modal-body">
-            
-            <h4 style="margin-bottom:10px; font-size:14px; color:var(--mint-800);">Edit Student Details</h4>
-            <form id="adminEditStudentForm" style="display:grid; gap:10px; margin-bottom:24px;">
-              <input type="hidden" name="user_id" value="${userId}">
-              <div class="field-row">
-                <div class="field"><label>Full Name</label><input class="rp-input" name="name" value="${esc(u.name)}" required></div>
-                <div class="field"><label>Program ID</label><input class="rp-input" name="program_id" value="${esc(pr.preferred || '')}" required></div>
-              </div>
-              <div class="field-row">
-                <div class="field"><label>Email</label><input class="rp-input" name="email" value="${esc(u.email)}" required></div>
-                <div class="field"><label>Role (Careful)</label><input class="rp-input" name="role" value="${esc(u.role)}" required></div>
-              </div>
-              <button type="submit" class="rp-btn rp-btn-primary" style="justify-self: start;">Save Changes</button>
-            </form>
-
-            <h4 style="margin-bottom:10px; font-size:14px; color:var(--mint-800);">Manage Subjects</h4>
-            <div class="rp-table-wrap" style="margin-bottom: 16px;">
-              <table class="rp-table">
-                <thead><tr><th>Course</th><th>Status</th><th></th></tr></thead>
-                <tbody>${subjectRows || '<tr><td colspan="3" class="rp-empty">No subjects recorded.</td></tr>'}</tbody>
-              </table>
-            </div>
-
-            <form id="adminSubjectForm" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
-              <input type="hidden" name="user_id" value="${userId}">
-              <div style="flex:2;min-width:200px">
-                <label style="font-size:12.4px;font-weight:600;display:block;margin-bottom:5px">Course</label>
-                <select class="rp-input" name="course_id" required>
-                  ${courses.map((c) => `<option value="${c.id}">${esc(c.code)} — ${esc(c.title)}</option>`).join('')}
-                </select>
-              </div>
-              <div style="width:140px">
-                <label style="font-size:12.4px;font-weight:600;display:block;margin-bottom:5px">Status</label>
-                <select class="rp-input" name="status">
-                  <option value="Taken">Taken</option>
-                  <option value="Enrolled">Enrolled</option>
-                  <option value="Unenrolled">Unenrolled</option>
-                </select>
-              </div>
-              <button class="rp-btn rp-btn-primary" type="submit">Add Subject</button>
-            </form>
-
-            <div style="margin-top: 30px; border-top: 1px solid #eee; padding-top: 20px; text-align: right;">
-              <button type="button" class="rp-btn rp-btn-danger" onclick="window.deleteStudent(${userId})">Delete Student Account</button>
-            </div>
-
-          </div>
+    <div class="rp-grid-2">
+      <div class="rp-card">
+        <div class="rp-card-head"><h3>Enrollment Summary by Program</h3></div>
+        <div class="rp-table-wrap">
+          <table class="rp-table" style="min-width:0;">
+            <thead><tr><th>Program</th><th>Students</th><th>Submitted</th><th>Verified</th><th>Enrolled</th></tr></thead>
+            <tbody>
+              ${programRows.map(r => `<tr><td><strong>${esc(r[0])}</strong></td><td>${r[1]}</td><td>${r[2]}</td><td>${r[3]}</td><td>${r[4]}</td></tr>`).join('')}
+            </tbody>
+          </table>
         </div>
       </div>
-    `;
+      <div class="rp-card">
+        <div class="rp-card-head"><h3>System Totals</h3></div>
+        <div class="rp-mini-grid">
+          <div><span>Units on student loads</span><strong>${loadedUnits}</strong></div>
+          <div><span>Students verified and waiting for subjects</span><strong>${verifiedStudentIds.size}</strong></div>
+          <div><span>Payments collected</span><strong>PHP ${collected.toLocaleString('en-PH', { minimumFractionDigits: 2 })}</strong></div>
+          <div><span>Payment transactions</span><strong>${logRows.length}</strong></div>
+        </div>
+      </div>
+    </div>
 
-    document.getElementById('adminModalBackdrop')?.remove();
-    document.body.insertAdjacentHTML('beforeend', modalHtml);
+    ${reportCard({
+      id: 'admin-roster',
+      title: 'Enrollment Roster Report',
+      hint: 'All students with program, application status, document verification and subject load.',
+      columns: ['Student', 'Student ID', 'Program', 'Year', 'Status', 'Documents', 'Subjects', 'Units', 'Amount Paid'],
+      rows: rosterRows,
+      filename: 'ucc-enrollment-roster.csv'
+    })}
 
-  } catch (err) {
-    console.error(err);
-    toast('Failed to load student.', 'error');
-  }
+    ${reportCard({
+      id: 'admin-payments',
+      title: 'Payment Summary Report',
+      hint: 'Payments recorded per student, including the most recent transaction date.',
+      columns: ['Student', 'Student ID', 'Transactions', 'Total Logged', 'Application Paid', 'Last Payment'],
+      rows: paymentRows,
+      filename: 'ucc-payment-summary.csv'
+    })}
+  `;
 }

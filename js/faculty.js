@@ -1,5 +1,7 @@
 import { esc, toast, isHistorySubject } from './utils.js';
 import { supa } from './api.js';
+import { decodePrereqSet, hydratePrereqSets, evaluatePrerequisites, missingLabel, isPrereqRow } from './prereqs.js';
+import { reportCard } from './report.js';
 
 const PROGRAMS = {
   '0': 'General',
@@ -11,22 +13,65 @@ const PROGRAMS = {
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 export async function renderFacultyDashboard() {
-  const students = await supa('users', { match: { role: 'student' } });
-  const apps = await supa('applications');
-  const courses = await supa('courses');
-  
-  const submitted = apps.filter(a => a.submitted && !a.returned).length;
+  const [students, apps, courses, subjectRows, presetRows] = await Promise.all([
+    supa('users', { match: { role: 'student' } }).catch(() => []),
+    supa('applications').catch(() => []),
+    supa('courses').catch(() => []),
+    supa('student_subjects').catch(() => []),
+    supa('presets').catch(() => [])
+  ]);
+
+  const verified = apps.filter(a => a.submitted && !a.returned).length;
+  const assigned = new Set(subjectRows.filter(s => !isHistorySubject(s)).map(s => String(s.user_id)));
+  const passed = subjectRows.filter(s => String(s.remarks || '').trim() === 'Passed').length;
+  const prereqSets = presetRows.map(decodePrereqSet).filter(Boolean);
+
+  const rows = students.map(u => {
+    const app = apps.find(a => String(a.user_id) === String(u.id)) || {};
+    let pr = app.program || {};
+    if (typeof pr === 'string') { try { pr = JSON.parse(pr); } catch (e) { pr = {}; } }
+    const load = subjectRows.filter(s => String(s.user_id) === String(u.id) && !isHistorySubject(s));
+    const units = load.reduce((sum, s) => {
+      const c = courses.find(x => String(x.id) === String(s.course_id));
+      return sum + (c ? Number(c.units) : 0);
+    }, 0);
+    return [
+      u.name,
+      u.student_id || '-',
+      PROGRAMS[pr.preferred] || 'Not set',
+      pr.year_level ? 'Year ' + pr.year_level : '-',
+      load.length,
+      units,
+      app.status || (app.submitted ? 'Pending' : 'In progress')
+    ];
+  });
 
   return `
     <div class="rp-grid-4">
-      <div class="rp-card rp-stat"><div class="ic">👥</div><div><div class="val">${students.length}</div><div class="lbl">Total Students</div></div></div>
-      <div class="rp-card rp-stat gold"><div class="ic">✅</div><div><div class="val">${submitted}</div><div class="lbl">Ready for Subjects</div></div></div>
-      <div class="rp-card rp-stat"><div class="ic">📚</div><div><div class="val">${courses.length}</div><div class="lbl">Total Subjects</div></div></div>
+      <div class="rp-card rp-stat"><div class="ic">ST</div><div><div class="val">${students.length}</div><div class="lbl">Total Students</div></div></div>
+      <div class="rp-card rp-stat gold"><div class="ic">RD</div><div><div class="val">${verified}</div><div class="lbl">Ready for Subjects</div></div></div>
+      <div class="rp-card rp-stat"><div class="ic">AS</div><div><div class="val">${assigned.size}</div><div class="lbl">With Subjects Assigned</div></div></div>
+      <div class="rp-card rp-stat gold"><div class="ic">PS</div><div><div class="val">${passed}</div><div class="lbl">Subjects Passed on Record</div></div></div>
     </div>
-    <div class="rp-card">
-      <h3>College Department</h3>
-      <p class="rp-hint" style="margin-top:10px;">Go to <strong>Check Students</strong> to assign subjects. Only students whose documents have been verified by the Registrar will appear here.</p>
+    <div class="rp-grid-2">
+      <div class="rp-card">
+        <h3>College Department</h3>
+        <p class="rp-hint" style="margin-top:10px;">Go to <strong>Check Students</strong> to assign subjects. Only students whose documents have been verified by the Registrar will appear here.</p>
+      </div>
+      <div class="rp-card">
+        <h3>Prerequisite Sequences</h3>
+        <p class="rp-hint" style="margin-top:10px;">${prereqSets.length} sequence(s) are enforced when subjects are added. Subjects that break a sequence are flagged in red and cannot be confirmed.</p>
+      </div>
     </div>
+
+    ${reportCard({
+      id: 'faculty-load',
+      title: 'Student Subject Load Report',
+      hint: 'Subjects currently assigned per student, with units and application status.',
+      columns: ['Student', 'Student ID', 'Program', 'Year', 'Subjects Assigned', 'Units', 'Status'],
+      rows,
+      filename: 'ucc-faculty-subject-load.csv'
+    })}
   `;
 }
 
@@ -39,6 +84,8 @@ export async function renderFacultyProgress() {
   const apps = await supa('applications');
   const presets = await supa('presets');
   const presetSubs = await supa('preset_subjects');
+  // Prerequisite sequences are stored in the presets table with a marker name.
+  const prereqSets = hydratePrereqSets(presets.map(decodePrereqSet).filter(Boolean), courses);
 
   const searchQ = (window.facultySearch || '').toLowerCase();
   const filterYear = window.facultyFilterYear || '';
@@ -100,7 +147,25 @@ export async function renderFacultyProgress() {
         !tempIds.includes(String(c.id))
       );
 
-      const matchingPresets = presets.filter(p => String(p.program_id) === String(progId) && String(p.year_level) === String(pr.year_level));
+      const matchingPresets = presets.filter(p => !isPrereqRow(p) && String(p.program_id) === String(progId) && String(p.year_level) === String(pr.year_level));
+
+      // Prerequisite check for the pending list: a subject may only be added when
+      // everything before it in its sequence is passed already or also pending.
+      const passedIds = completedSubjects
+        .filter(c => String(c.remarks || '').trim() === 'Passed')
+        .map(c => c.course_id);
+
+      const prereqProblems = evaluatePrerequisites({
+        selectedIds: window.tempStudentSubjects.map(s => s.courseId),
+        passedIds,
+        sets: prereqSets,
+        courses
+      });
+
+      const prereqErrors = [...prereqProblems.entries()].map(([courseId, missing]) => {
+        const c = courses.find(x => String(x.id) === String(courseId));
+        return `${c ? c.code : 'Subject'} — ${missingLabel(missing)}`;
+      });
 
       return `
         <div class="rp-toolbar" style="margin-bottom: 20px;">
@@ -126,21 +191,34 @@ export async function renderFacultyProgress() {
         <div class="rp-grid-2">
           <div class="rp-card" style="display:flex; flex-direction:column;">
             <div class="rp-card-head">
-              <h3>📝 Pre-Confirmed List</h3>
+              <h3>Pre-Confirmed List</h3>
               <span class="rp-hint">${window.tempStudentSubjects.length} subject(s)</span>
             </div>
             
             <div id="tempSubjectList" style="flex:1;">
-              ${window.tempStudentSubjects.length ? window.tempStudentSubjects.map((s, idx) => `
-                <div style="display:flex; justify-content:space-between; align-items:center; padding:10px 0; border-bottom:1px solid #eee;">
+              ${window.tempStudentSubjects.length ? window.tempStudentSubjects.map((s, idx) => {
+                const missing = prereqProblems.get(String(s.courseId));
+                return `
+                <div class="prereq-row ${missing ? 'invalid' : ''}">
                   <div>
                     <div style="font-size:13.5px; font-weight:600;">${esc(s.code)} — ${esc(s.title)}</div>
                     <div class="rp-hint">${s.units} units</div>
+                    ${missing ? `<div class="prereq-error">${esc(missingLabel(missing))}</div>` : ''}
                   </div>
                   <button type="button" class="rp-btn rp-btn-danger rp-btn-sm" onclick="window.removeTempSubject(${idx})">✕</button>
                 </div>
-              `).join('') : '<div class="rp-empty" style="padding:20px 0;">No subjects pre-confirmed yet.</div>'}
+              `; }).join('') : '<div class="rp-empty" style="padding:20px 0;">No subjects pre-confirmed yet.</div>'}
             </div>
+
+            ${prereqErrors.length ? `
+              <div class="rp-notice red" style="margin-top:14px;">
+                <div>
+                  <strong>Prerequisite sequence is broken</strong>
+                  <ul class="prereq-error-list">${prereqErrors.map(msg => `<li>${esc(msg)}</li>`).join('')}</ul>
+                  <div class="rp-hint">Add the missing subject in sequence, or remove the subjects that cannot be taken yet.</div>
+                </div>
+              </div>
+            ` : ''}
 
             <button type="button" class="rp-btn rp-btn-primary" style="margin-top: 16px; width: 100%; display: ${window.tempStudentSubjects.length ? 'block' : 'none'};" id="btnConfirmSubjects" onclick="window.confirmStudentSubjects('${student.id}')">
               Confirm Subjects
@@ -148,12 +226,11 @@ export async function renderFacultyProgress() {
           </div>
 
           <div class="rp-card">
-            <div class="rp-card-head"><h3>➕ Add Subjects</h3></div>
+            <div class="rp-card-head"><h3>Add Subjects</h3></div>
             
             ${matchingPresets.length ? `
               <div style="margin-bottom: 20px; background:var(--mint-100); padding: 14px; border-radius: 10px;">
                 <div style="font-size:13px; font-weight:700; margin-bottom:6px; color:var(--mint-800)">Available Presets</div>
-                <div class="rp-hint" style="margin-bottom:10px;">Subjects the student already took (Passed/Dropped) are skipped automatically.</div>
                 ${matchingPresets.map(mp => {
                   const subCount = presetSubs.filter(ps => String(ps.preset_id) === String(mp.id)).length;
                   return `
@@ -182,7 +259,7 @@ export async function renderFacultyProgress() {
 
         <div class="rp-card" style="margin-top: 20px;">
           <div class="rp-card-head">
-            <h3>📚 Subjects to be added:</h3>
+            <h3>Subjects to be added</h3>
             <span class="rp-badge green">${taken.length} subject(s)</span>
           </div>
           ${taken.length ? taken.map(t => {
@@ -205,10 +282,9 @@ export async function renderFacultyProgress() {
         ${completedSubjects.length ? `
         <div class="rp-card" style="margin-top: 20px;">
           <div class="rp-card-head">
-            <h3>🎓 Subjects Already Taken</h3>
+            <h3>Subjects Already Taken</h3>
             <span class="rp-badge grey">${completedSubjects.length} subject(s)</span>
           </div>
-          <div class="rp-hint" style="margin-bottom:10px;">Recorded by the Registrar — these are excluded from presets and from the subject picker.</div>
           ${completedSubjects.map(t => {
             const c = courses.find(x => String(x.id) === String(t.course_id)) || {};
             const remarks = String(t.remarks || '');
@@ -255,7 +331,6 @@ export async function renderFacultyProgress() {
     </div>
 
     <div class="rp-notice info" style="margin-bottom: 16px;">
-      <span>ℹ️</span>
       <span>Only students whose documents have been <strong>Verified by the Registrar</strong> appear here.</span>
     </div>
 

@@ -30,11 +30,11 @@ export async function renderStudentDashboard() {
   }
 
   const steps = [
-    { id: 1, label: 'Personal Information', icon: '👤' },
-    { id: 2, label: 'Educational Background', icon: '🏛️' },
-    { id: 3, label: 'Program Choice', icon: '⚙️' },
-    { id: 4, label: 'Upload Documents', icon: '📄' },
-    { id: 5, label: 'Application Submitted', icon: '✓' }
+    { id: 1, label: 'Personal Information', icon: '1' },
+    { id: 2, label: 'Educational Background', icon: '2' },
+    { id: 3, label: 'Program Choice', icon: '3' },
+    { id: 4, label: 'Upload Documents', icon: '4' },
+    { id: 5, label: 'Application Submitted', icon: '5' }
   ];
 
   return `
@@ -49,7 +49,6 @@ export async function renderStudentDashboard() {
 
     ${app && app.returned ? `
       <div class="rp-notice red" style="margin-bottom:20px; border-color:var(--danger); background:#fdeceb; color:var(--danger);">
-        <span>⚠️</span>
         <div>
           <strong>Application Returned by Registrar</strong>
           <p>${esc(app.registrar_feedback)}</p>
@@ -84,13 +83,12 @@ export async function renderStudentDashboard() {
             </div>
           </div>
           <div class="rp-notice info" style="margin-bottom:0; width: 100%;">
-            <span>ℹ️</span>
             <span>Please wait for the Registrar to verify your documents. Once verified, the Faculty will assign your subjects.</span>
           </div>
         </div>
       ` : (app && app.returned ? '' : `
         <div class="continue-bar">
-          <div class="cb-icon">👤</div>
+          <div class="cb-icon">1</div>
           <div class="cb-text">
             <h4>Continue your application</h4>
             <p>Complete all required information to finish your enrollment.</p>
@@ -127,11 +125,11 @@ export async function renderApply() {
     <div class="apply-layout">
       <aside class="apply-sidebar">
         ${[
-          { id: 1, label: 'Personal', icon: '👤' },
-          { id: 2, label: 'Education', icon: '🏛️' },
-          { id: 3, label: 'Program', icon: '⚙️' },
-          { id: 4, label: 'Documents', icon: '📄' },
-          { id: 5, label: 'Review', icon: '✓' }
+          { id: 1, label: 'Personal', icon: '1' },
+          { id: 2, label: 'Education', icon: '2' },
+          { id: 3, label: 'Program', icon: '3' },
+          { id: 4, label: 'Documents', icon: '4' },
+          { id: 5, label: 'Review', icon: '5' }
         ].map(s => `
           <button class="sidebar-step ${step === s.id ? 'active' : ''}" data-action="gotoStep" data-step="${s.id}">
             <span class="ss-icon">${s.icon}</span>
@@ -301,7 +299,7 @@ function renderStepDocuments(app) {
             <div class="ur-input" style="display:flex; flex-direction:row; gap:8px; align-items:center;">
               ${isUploaded ? `<button type="button" class="btn btn-ghost btn-sm" onclick="window.viewDocument('${uploaded[d.id]}')">View File</button>` : ''}
               <label class="file-btn">
-                ⬆ ${isUploaded ? 'Replace' : 'Choose'} File
+                ${isUploaded ? 'Replace' : 'Choose'} File
                 <input type="file" accept=".pdf,.jpg,.jpeg,.png" onchange="window.handleFileUpload(event, '${d.id}', '${d.name}')">
               </label>
             </div>
@@ -518,7 +516,7 @@ export async function renderPaymentTab(app, subjects, courses, settings) {
       </div>
     `;
   }).join('') : `
-    <div class="rp-empty"><span class="big">🧾</span>No payments recorded yet. Receipts appear here as soon as a payment is made online or recorded by the Accounting office.</div>
+    <div class="rp-empty">No payments recorded yet. Receipts appear here as soon as a payment is made online or recorded by the Accounting office.</div>
   `;
 
   return `
@@ -570,7 +568,7 @@ export async function renderPaymentTab(app, subjects, courses, settings) {
             </div>
           ` : `
             <div class="rp-notice mint" style="margin-top:20px;">
-              <span>✅</span><span>Your tuition is fully paid. You can now view your Schedule and Registration Form.</span>
+              <span>Your tuition is fully paid. You can now view your Schedule and Registration Form.</span>
             </div>
           `}
         </div>

@@ -1,29 +1,112 @@
 import { esc, toast } from './utils.js';
 import { supa } from './api.js';
+import { decodePrereqSet, hydratePrereqSets, encodePrereqName, isPrereqRow } from './prereqs.js';
+import { reportCard } from './report.js';
 
 const PROGRAMS = { '0': 'General', '1': 'BEEd', '2': 'BSEd', '8': 'BSCS' };
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 // --- REGISTRAR DASHBOARD ---
 export async function renderRegistrarDashboard() {
-  const students = await supa('users', { match: { role: 'student' } });
-  const courses = await supa('courses');
-  const presets = await supa('presets');
-  const apps = await supa('applications');
-  const submitted = apps.filter(a => a.submitted && !a.returned).length;
+  const [students, courses, presetRows, apps, subjectRows, logRows] = await Promise.all([
+    supa('users', { match: { role: 'student' } }).catch(() => []),
+    supa('courses').catch(() => []),
+    supa('presets').catch(() => []),
+    supa('applications').catch(() => []),
+    supa('student_subjects').catch(() => []),
+    supa('payment_logs').catch(() => [])
+  ]);
+
+  const presets = presetRows.filter(p => !isPrereqRow(p));
+  const prereqSets = presetRows.map(decodePrereqSet).filter(Boolean);
+  const submitted = apps.filter(a => a.submitted && !a.returned);
+  const enrolled = apps.filter(a => a.status === 'Approved').length;
+  const docsPending = submitted.filter(a => !docsComplete(a)).length;
+  const verified = submitted.length - docsPending;
+  const collected = logRows.reduce((sum, l) => sum + Number(l.amount || 0), 0);
+
+  const programRows = Object.entries(PROGRAMS).filter(([id]) => id !== '0').map(([id, name]) => {
+    const ofProgram = apps.filter(a => {
+      let pr = a.program || {};
+      if (typeof pr === 'string') { try { pr = JSON.parse(pr); } catch (e) { pr = {}; } }
+      return String(pr.preferred) === String(id);
+    });
+    return [
+      name,
+      ofProgram.length,
+      ofProgram.filter(a => a.submitted && !a.returned).length,
+      ofProgram.filter(a => a.status === 'Approved').length
+    ];
+  });
+
+  const studentRows = students.map(u => {
+    const app = apps.find(a => String(a.user_id) === String(u.id)) || {};
+    let pr = app.program || {};
+    if (typeof pr === 'string') { try { pr = JSON.parse(pr); } catch (e) { pr = {}; } }
+    const load = subjectRows.filter(s => String(s.user_id) === String(u.id) && !['Passed', 'Dropped', 'Failed'].includes(String(s.remarks || '').trim()));
+    return [
+      u.name,
+      u.student_id || '-',
+      PROGRAMS[pr.preferred] || 'Not set',
+      pr.year_level ? 'Year ' + pr.year_level : '-',
+      app.status === 'Approved' ? 'Enrolled' : (app.submitted ? 'Applicant' : 'In Progress'),
+      app.doc_type ? (docsComplete(app) ? 'Complete' : 'Incomplete') : 'No checklist',
+      load.length,
+      Number(app.amount_paid || 0).toFixed(2)
+    ];
+  });
 
   return `
     <div class="rp-grid-4">
-      <div class="rp-card rp-stat"><div class="ic">👥</div><div><div class="val">${students.length}</div><div class="lbl">Total Students</div></div></div>
-      <div class="rp-card rp-stat gold"><div class="ic">📝</div><div><div class="val">${submitted}</div><div class="lbl">Pending Applicants</div></div></div>
-      <div class="rp-card rp-stat"><div class="ic">📚</div><div><div class="val">${courses.length}</div><div class="lbl">Total Subjects</div></div></div>
-      <div class="rp-card rp-stat gold"><div class="ic">🧩</div><div><div class="val">${presets.length}</div><div class="lbl">Total Presets</div></div></div>
+      <div class="rp-card rp-stat"><div class="ic">ST</div><div><div class="val">${students.length}</div><div class="lbl">Total Students</div></div></div>
+      <div class="rp-card rp-stat gold"><div class="ic">PA</div><div><div class="val">${submitted.length}</div><div class="lbl">Pending Applicants</div></div></div>
+      <div class="rp-card rp-stat"><div class="ic">EN</div><div><div class="val">${enrolled}</div><div class="lbl">Officially Enrolled</div></div></div>
+      <div class="rp-card rp-stat gold"><div class="ic">DC</div><div><div class="val">${docsPending}</div><div class="lbl">Documents Awaiting Verification</div></div></div>
     </div>
-    <div class="rp-card">
-      <h3>Registrar Overview</h3>
-      <p class="rp-hint" style="margin-top:10px;">Manage student documents, create subjects, and organize course bundles for Faculty use.</p>
+
+    <div class="rp-grid-4">
+      <div class="rp-card rp-stat"><div class="ic">SB</div><div><div class="val">${courses.length}</div><div class="lbl">Total Subjects</div></div></div>
+      <div class="rp-card rp-stat gold"><div class="ic">PR</div><div><div class="val">${presets.length}</div><div class="lbl">Subject Presets</div></div></div>
+      <div class="rp-card rp-stat"><div class="ic">PQ</div><div><div class="val">${prereqSets.length}</div><div class="lbl">Prerequisite Sequences</div></div></div>
+      <div class="rp-card rp-stat gold"><div class="ic">VR</div><div><div class="val">${verified}</div><div class="lbl">Verified Applications</div></div></div>
     </div>
+
+    <div class="rp-grid-2">
+      <div class="rp-card">
+        <div class="rp-card-head"><h3>Enrollment Summary by Program</h3></div>
+        <div class="rp-table-wrap">
+          <table class="rp-table" style="min-width:0;">
+            <thead><tr><th>Program</th><th>Students</th><th>Applicants</th><th>Enrolled</th></tr></thead>
+            <tbody>
+              ${programRows.map(r => `<tr><td><strong>${esc(r[0])}</strong></td><td>${r[1]}</td><td>${r[2]}</td><td>${r[3]}</td></tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="rp-card">
+        <div class="rp-card-head"><h3>Records Overview</h3></div>
+        <p class="rp-hint">Payments recorded: <strong>PHP ${collected.toLocaleString('en-PH', { minimumFractionDigits: 2 })}</strong> across ${logRows.length} transaction(s).</p>
+        <p class="rp-hint" style="margin-top:8px;">Subjects on record: ${subjectRows.length} · Presets in use: ${presets.length} · Prerequisite sequences: ${prereqSets.length}.</p>
+      </div>
+    </div>
+
+    ${reportCard({
+      id: 'registrar-students',
+      title: 'Student Enrollment Report',
+      hint: 'Every student with program, status, document verification, subject load and amount paid.',
+      columns: ['Student', 'Student ID', 'Program', 'Year', 'Status', 'Documents', 'Subjects', 'Amount Paid'],
+      rows: studentRows,
+      filename: 'ucc-registrar-students.csv'
+    })}
   `;
+}
+
+// A document checklist is complete when every required document is verified.
+export function docsComplete(app) {
+  const docs = DOC_TYPES[app && app.doc_type];
+  if (!docs) return false;
+  const status = (app && app.doc_status) || {};
+  return docs.filter(d => d.required).every(d => status[d.id] === 'Complete');
 }
 
 // --- STUDENT MANAGEMENT ---
@@ -194,11 +277,6 @@ export async function regManageStudentModal(userId, tab) {
   }).join('') : '<tr><td colspan="3" class="rp-empty">No document checklist recorded for this application yet.</td></tr>';
 
   const documentsPane = `
-    <div class="rp-notice info" style="margin-bottom:20px;">
-      <span>ℹ️</span>
-      <span>Verify the uploaded documents below. Mark them as "Complete" once verified. The student will not appear in the Faculty portal until all <strong>Required</strong> documents are marked Complete.</span>
-    </div>
-
     <div class="rp-table-wrap">
       <table class="rp-table">
         <thead><tr><th>Document Name</th><th>File</th><th>Registrar Status</th></tr></thead>
@@ -238,11 +316,6 @@ export async function regManageStudentModal(userId, tab) {
   }).join('') : '<tr><td colspan="6" class="rp-empty">No subjects recorded for this student yet.</td></tr>';
 
   const subjectsPane = `
-    <div class="rp-notice info" style="margin-bottom:18px;">
-      <span>ℹ️</span>
-      <span>Type the course code and the subject name fills in automatically. Record the grade and whether the student <strong>Passed</strong> or <strong>Dropped</strong> it. Faculty will skip these subjects when applying presets.</span>
-    </div>
-
     <div class="rp-card" style="background:var(--mint-50); margin-bottom:18px;">
       <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end;">
         <div class="field" style="flex:1 1 180px; margin-bottom:0;">
@@ -517,7 +590,8 @@ window.viewDocument = (url) => {
 
 // --- REGISTRAR PRESETS ---
 export async function renderRegistrarPresets() {
-  const presets = await supa('presets');
+  // Rows that hold prerequisite sequences live in the same table and are hidden here.
+  const presets = (await supa('presets')).filter(p => !isPrereqRow(p));
   const presetSubs = await supa('preset_subjects');
   const filterProg = window.regPresetFilterProg || 'all';
   const filterYear = window.regPresetFilterYear || 'all';
@@ -584,7 +658,7 @@ export async function renderRegistrarCourses() {
   return `
     <div class="rp-grid-2">
       <div class="rp-card">
-        <div class="rp-card-head"><h3>➕ Create New Subject</h3></div>
+        <div class="rp-card-head"><h3>Create New Subject</h3></div>
         <form id="regCreateCourseForm" style="display:flex; flex-direction: column; gap: 10px;">
           <div class="field-row">
             <div class="field"><label>Course Code</label><input class="rp-input" name="code" placeholder="e.g. BSCS-101" required></div>
@@ -624,7 +698,7 @@ export async function renderRegistrarCourses() {
 
       <div class="rp-card" style="display:flex; flex-direction:column;">
         <div class="rp-card-head" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:16px;">
-          <h3 style="margin:0;">📚 Subject List</h3>
+          <h3 style="margin:0;">Subject List</h3>
           <select class="rp-input" data-change="regCourseFilterProg" style="width:auto; min-width:160px; padding:6px 12px;">
             <option value="all">All Programs</option>
             <option value="0" ${filterProg === '0' ? 'selected' : ''}>General Subjects</option>
@@ -894,4 +968,268 @@ window.regRemovePresetSubjectTemp = (psId, courseId) => {
       </div>
     `).join('');
   }
+};
+
+/* =========================================================================
+   PREREQUISITE SUBJECTS
+   -------------------------------------------------------------------------
+   A prerequisite set is an ordered sequence of subjects for one program,
+   year level and semester. Order defines what has to be taken first, so the
+   editor lets the registrar drag subjects or nudge them with the arrow
+   buttons.
+   ========================================================================= */
+
+export async function renderRegistrarPrereqs() {
+  const [rows, courses] = await Promise.all([
+    supa('presets').catch(() => []),
+    supa('courses').catch(() => [])
+  ]);
+
+  const sets = hydratePrereqSets(rows.map(decodePrereqSet).filter(Boolean), courses);
+  const filterProg = window.regPrereqFilterProg || 'all';
+  const filterYear = window.regPrereqFilterYear || 'all';
+
+  const filtered = sets.filter(set => {
+    const progMatch = filterProg === 'all' || String(set.programId) === String(filterProg);
+    const yearMatch = filterYear === 'all' || String(set.yearLevel) === String(filterYear);
+    return progMatch && yearMatch;
+  });
+
+  const chainText = (set) => set.courses.length
+    ? set.courses.map(c => esc(c.code)).join(' <span class="chain-arrow">&rarr;</span> ')
+    : '<span class="rp-hint">No subjects yet</span>';
+
+  return `
+    <div class="rp-toolbar" style="margin-bottom:20px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+      <div style="display:flex; gap:10px;">
+        <select class="rp-input" data-change="regPrereqFilterProg" style="width:160px;">
+          <option value="all">All Programs</option>
+          <option value="1" ${filterProg === '1' ? 'selected' : ''}>BEEd</option>
+          <option value="2" ${filterProg === '2' ? 'selected' : ''}>BSEd</option>
+          <option value="8" ${filterProg === '8' ? 'selected' : ''}>BSCS</option>
+        </select>
+        <select class="rp-input" data-change="regPrereqFilterYear" style="width:140px;">
+          <option value="all">All Years</option>
+          <option value="1" ${filterYear === '1' ? 'selected' : ''}>1st Year</option>
+          <option value="2" ${filterYear === '2' ? 'selected' : ''}>2nd Year</option>
+          <option value="3" ${filterYear === '3' ? 'selected' : ''}>3rd Year</option>
+          <option value="4" ${filterYear === '4' ? 'selected' : ''}>4th Year</option>
+        </select>
+      </div>
+      <button class="rp-btn rp-btn-primary" data-action="regCreatePrereq">Create New Prerequisite Set</button>
+    </div>
+
+    <div class="rp-notice info">
+      <span>Subjects inside a sequence must be taken in order. A student may take the whole sequence in one semester, but no subject may be skipped.</span>
+    </div>
+
+    <div class="rp-table-wrap">
+      <table class="rp-table">
+        <thead><tr><th>Title</th><th>Program</th><th>Year</th><th>Sem</th><th>Sequence</th><th style="text-align:right">Actions</th></tr></thead>
+        <tbody>
+          ${filtered.length ? filtered.map(set => `
+            <tr>
+              <td><strong>${esc(set.title)}</strong></td>
+              <td><span class="rp-badge green">${PROGRAMS[set.programId] || 'Unknown'}</span></td>
+              <td>Year ${esc(set.yearLevel)}</td>
+              <td>${esc(set.semester)}</td>
+              <td>${chainText(set)}</td>
+              <td style="text-align:right; white-space:nowrap;">
+                <button class="rp-btn rp-btn-primary rp-btn-sm" data-action="regEditPrereq" data-id="${set.id}">Edit</button>
+                <button class="rp-btn rp-btn-danger rp-btn-sm" data-action="regDeletePrereq" data-id="${set.id}">Delete</button>
+              </td>
+            </tr>
+          `).join('') : '<tr><td colspan="6" class="rp-empty">No prerequisite subjects found.</td></tr>'}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+export async function regEditPrereqModal(setId) {
+  const isNew = !setId;
+  const courses = await supa('courses').catch(() => []);
+
+  let set = { id: null, title: '', programId: '1', yearLevel: '1', semester: '1st Semester', courseIds: [] };
+  if (!isNew) {
+    const rows = await supa('presets', { match: { id: setId } });
+    const decoded = decodePrereqSet(rows[0]);
+    if (decoded) set = decoded;
+  }
+
+  const byId = new Map(courses.map(c => [String(c.id), c]));
+  window.tempRegPrereqSubjects = set.courseIds.map(id => byId.get(String(id))).filter(Boolean);
+
+  const modalHtml = `
+    <div class="rp-modal-backdrop" id="regPrereqModal">
+      <div class="rp-modal wide">
+        <div class="rp-modal-head">
+          <h3>${isNew ? 'Create Prerequisite Set' : 'Edit Prerequisite Set'}</h3>
+          <button type="button" class="rp-btn rp-btn-ghost rp-btn-sm" onclick="document.getElementById('regPrereqModal').remove()">✕</button>
+        </div>
+        <div class="rp-modal-body">
+          <div class="rp-grid-2">
+
+            <div>
+              <h4 style="margin-bottom:10px; font-size:14px; color:var(--mint-800);">Sequence Info</h4>
+              <div style="display:flex; flex-direction:column; gap:12px;">
+                <input type="hidden" id="reg_prereq_id" value="${isNew ? '' : set.id}">
+                <div class="field">
+                  <label>Title</label>
+                  <input class="rp-input" id="reg_prereq_title" value="${esc(set.title)}" placeholder="e.g. BSCS Programming Sequence">
+                </div>
+                <div class="field">
+                  <label>Program</label>
+                  <select class="rp-input" id="reg_prereq_prog">
+                    <option value="1" ${String(set.programId) === '1' ? 'selected' : ''}>BEEd</option>
+                    <option value="2" ${String(set.programId) === '2' ? 'selected' : ''}>BSEd</option>
+                    <option value="8" ${String(set.programId) === '8' ? 'selected' : ''}>BSCS</option>
+                  </select>
+                </div>
+                <div class="field-row">
+                  <div class="field">
+                    <label>Year Level</label>
+                    <select class="rp-input" id="reg_prereq_year">
+                      <option value="1" ${String(set.yearLevel) === '1' ? 'selected' : ''}>1st Year</option>
+                      <option value="2" ${String(set.yearLevel) === '2' ? 'selected' : ''}>2nd Year</option>
+                      <option value="3" ${String(set.yearLevel) === '3' ? 'selected' : ''}>3rd Year</option>
+                      <option value="4" ${String(set.yearLevel) === '4' ? 'selected' : ''}>4th Year</option>
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label>Semester</label>
+                    <select class="rp-input" id="reg_prereq_sem">
+                      <option value="1st Semester" ${set.semester === '1st Semester' ? 'selected' : ''}>1st Semester</option>
+                      <option value="2nd Semester" ${set.semester === '2nd Semester' ? 'selected' : ''}>2nd Semester</option>
+                      <option value="Summer" ${set.semester === 'Summer' ? 'selected' : ''}>Summer</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="rp-hint">The student must take these subjects in the order shown on the right.</div>
+              </div>
+            </div>
+
+            <div>
+              <h4 style="margin-bottom:10px; font-size:14px; color:var(--mint-800);">Add Subjects</h4>
+              <div style="display:flex; gap:8px;">
+                <input class="rp-input" id="regPrereqCodeInput" placeholder="Type course code (e.g. BSCS-101)"
+                       oninput="this.value = this.value.toUpperCase();"
+                       onkeydown="if(event.key==='Enter'){ event.preventDefault(); window.regAddPrereqSubject(); }">
+                <button type="button" class="rp-btn rp-btn-primary" onclick="window.regAddPrereqSubject()">Add</button>
+              </div>
+              <div id="regPrereqErrorMsg" style="color:var(--danger); font-size:12px; margin-top:5px; display:none;"></div>
+
+              <h4 style="margin-top:20px; margin-bottom:6px; font-size:14px; color:var(--mint-800);">Sequence Order</h4>
+              <div class="rp-hint" style="margin-bottom:10px;">Drag a subject, or use the arrow buttons, to change the order.</div>
+              <div class="prereq-list" id="regPrereqList"></div>
+            </div>
+
+          </div>
+        </div>
+        <div class="rp-modal-foot">
+          <button type="button" class="rp-btn rp-btn-ghost" onclick="document.getElementById('regPrereqModal').remove()">Cancel</button>
+          <button type="button" class="rp-btn rp-btn-primary" data-action="regSavePrereq">Save Prerequisite Set</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.getElementById('regPrereqModal')?.remove();
+  document.body.insertAdjacentHTML('beforeend', modalHtml);
+  drawPrereqList();
+}
+
+function drawPrereqList() {
+  const box = document.getElementById('regPrereqList');
+  if (!box) return;
+  const list = window.tempRegPrereqSubjects || [];
+
+  if (!list.length) {
+    box.innerHTML = '<div class="rp-empty" style="padding:16px;">No subjects in this sequence yet.</div>';
+    return;
+  }
+
+  box.innerHTML = list.map((c, i) => `
+    <div class="prereq-item" draggable="true" data-index="${i}"
+         ondragstart="window.regPrereqDragStart(event, ${i})"
+         ondragover="event.preventDefault()"
+         ondrop="window.regPrereqDrop(event, ${i})">
+      <span class="prereq-step">${i + 1}</span>
+      <div class="prereq-item-text">
+        <div class="prereq-code">${esc(c.code)}</div>
+        <div class="rp-hint">${esc(c.title)} · ${c.units} units</div>
+      </div>
+      <div class="prereq-item-actions">
+        <button type="button" class="rp-btn rp-btn-ghost rp-btn-sm" title="Move up"
+                onclick="window.regPrereqMove(${i}, -1)" ${i === 0 ? 'disabled' : ''}>&uarr;</button>
+        <button type="button" class="rp-btn rp-btn-ghost rp-btn-sm" title="Move down"
+                onclick="window.regPrereqMove(${i}, 1)" ${i === list.length - 1 ? 'disabled' : ''}>&darr;</button>
+        <button type="button" class="rp-btn rp-btn-danger rp-btn-sm" title="Remove"
+                onclick="window.regPrereqRemove(${i})">✕</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+window.regAddPrereqSubject = async () => {
+  const input = document.getElementById('regPrereqCodeInput');
+  const err = document.getElementById('regPrereqErrorMsg');
+  if (!input || !err) return;
+
+  const code = input.value.trim().toUpperCase();
+  if (!code) return;
+
+  const courses = await supa('courses').catch(() => []);
+  const course = courses.find(c => String(c.code || '').trim().toUpperCase() === code);
+
+  if (!course) {
+    err.textContent = 'Course code does not exist.';
+    err.style.display = 'block';
+    return;
+  }
+
+  if (window.tempRegPrereqSubjects.some(s => String(s.id) === String(course.id))) {
+    err.textContent = 'This subject is already in the sequence.';
+    err.style.display = 'block';
+    return;
+  }
+
+  err.style.display = 'none';
+  window.tempRegPrereqSubjects.push(course);
+  input.value = '';
+  drawPrereqList();
+};
+
+window.regPrereqMove = (index, direction) => {
+  const list = window.tempRegPrereqSubjects || [];
+  const target = index + direction;
+  if (target < 0 || target >= list.length) return;
+  const [item] = list.splice(index, 1);
+  list.splice(target, 0, item);
+  drawPrereqList();
+};
+
+window.regPrereqRemove = (index) => {
+  const list = window.tempRegPrereqSubjects || [];
+  list.splice(index, 1);
+  drawPrereqList();
+};
+
+window.regPrereqDragStart = (event, index) => {
+  window.regPrereqDragIndex = index;
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', String(index));
+  }
+};
+
+window.regPrereqDrop = (event, index) => {
+  event.preventDefault();
+  const from = window.regPrereqDragIndex;
+  window.regPrereqDragIndex = null;
+  const list = window.tempRegPrereqSubjects || [];
+  if (from === null || from === undefined || from === index || from < 0 || from >= list.length) return;
+  const [item] = list.splice(from, 1);
+  list.splice(index, 0, item);
+  drawPrereqList();
 };
