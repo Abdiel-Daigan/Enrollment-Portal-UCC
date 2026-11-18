@@ -2,7 +2,7 @@ import { esc, isHistorySubject } from './utils.js';
 import { supa } from './api.js';
 import { decodePrereqSet, hydratePrereqSets, evaluatePrerequisites, missingLabel } from './prereqs.js';
 import { reportCard } from './report.js';
-import { isMetaRow, programLabel, programOptionsHtml, courseMatchesProgram, findUnitLimit, getAcademicTerm, SEMESTERS } from './catalog.js';
+import { isMetaRow, programLabel, programOptionsHtml, courseMatchesProgram, presetMatchesProgram, findUnitLimit, getAcademicTerm, SEMESTERS } from './catalog.js';
 import { isVisibleToFaculty } from './documents.js';
 import { applicationStatus } from './status.js';
 
@@ -130,7 +130,7 @@ export async function renderFacultyProgress() {
       const term = getAcademicTerm();
       const matchingPresets = presets.filter(p =>
         !isMetaRow(p)
-        && String(p.program_id) === String(progId)
+        && presetMatchesProgram(p, progId)
         && String(p.year_level) === String(pr.year_level)
         && String(p.semester) === String(term.semester)
       );

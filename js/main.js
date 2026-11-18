@@ -646,10 +646,10 @@ document.addEventListener('click', async (e) => {
       return String(pr.preferred) === String(programId);
     }).length;
 
-    if (inUse) {
-      return toast(`Cannot delete this program: ${inUse} student application(s) already use it.`, 'error');
-    }
-    if (!confirm('Delete this program? Its unit limits and subject assignments will also be removed.')) return;
+    const warning = inUse
+      ? `${inUse} student application(s) use this program and will show "Unspecified". `
+      : '';
+    if (!confirm(`${warning}Delete this program? Its unit limits and subject assignments will also be removed.`)) return;
 
     try {
       await deleteProgram(Number(programId));

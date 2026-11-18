@@ -16,16 +16,27 @@ const PROGRAM_PREFIX = 'PROGRAM::';
 const UNIT_LIMIT_PREFIX = 'UNITLIMIT::';
 const COURSE_PROGRAM_PREFIX = 'COURSEPROG::';
 const ACADEMIC_TERM_PREFIX = 'ACADEMIC_TERM::';
+const PROGRAM_SEED_PREFIX = 'PROGRAM_SEED::';
 
 export const YEAR_LEVELS = [1, 2, 3, 4];
 export const SEMESTERS = ['1st Semester', '2nd Semester', 'Summer'];
 
-export const DEFAULT_PROGRAMS = [
-  { id: 0, code: 'General', name: 'General (All Programs)', general: true },
+// General is not a program row: it is the bucket that means "offered to every
+// program", and it is never listed or edited. The rest is only the seed for a
+// database that has no programs yet; once seeded, every program is a normal row
+// the Registrar can add, rename or delete.
+const GENERAL_PROGRAM = { id: 0, code: 'General', name: 'General (All Programs)', general: true };
+
+const DEFAULT_PROGRAMS = [
+  GENERAL_PROGRAM,
   { id: 1, code: 'BEEd', name: 'BEEd (Elementary Education)' },
   { id: 2, code: 'BSEd', name: 'BSEd (Secondary Education)' },
   { id: 8, code: 'BSCS', name: 'BSCS (Computer Science)' }
 ];
+
+// Programs that no longer exist (or were never set) are shown as Unspecified
+// and behave like General: offered to every program.
+export const UNSPECIFIED_PROGRAM = 'Unspecified';
 
 let programs = DEFAULT_PROGRAMS.slice();
 let unitLimits = [];
@@ -56,7 +67,8 @@ export function isMetaRow(row) {
   return name.startsWith(PROGRAM_PREFIX)
     || name.startsWith(UNIT_LIMIT_PREFIX)
     || name.startsWith(COURSE_PROGRAM_PREFIX)
-    || name.startsWith(ACADEMIC_TERM_PREFIX);
+    || name.startsWith(ACADEMIC_TERM_PREFIX)
+    || name.startsWith(PROGRAM_SEED_PREFIX);
 }
 
 export async function loadCatalog() {
@@ -73,6 +85,7 @@ export async function loadCatalog() {
   let map = {};
   let mapRowId = null;
   let term = null;
+  let programsSeeded = false;
 
   rows.forEach((row) => {
     const name = String(row.name || '');
@@ -102,6 +115,8 @@ export async function loadCatalog() {
       Object.entries(source || {}).forEach(([courseId, ids]) => {
         if (Array.isArray(ids) && ids.length) map[courseId] = ids.map(Number);
       });
+    } else if (name.startsWith(PROGRAM_SEED_PREFIX)) {
+      programsSeeded = true;
     } else if (name.startsWith(ACADEMIC_TERM_PREFIX)) {
       const data = decodeMeta(row, ACADEMIC_TERM_PREFIX);
       if (!data) return;
@@ -112,7 +127,9 @@ export async function loadCatalog() {
     }
   });
 
-  programs = DEFAULT_PROGRAMS.concat(custom.filter(p => !DEFAULT_PROGRAMS.some(d => String(d.id) === String(p.id))));
+  // The same id may appear twice if two tabs seeded at once; the last row wins.
+  const uniquePrograms = [...custom.reduce((byId, p) => byId.set(String(p.id), p), new Map()).values()];
+  programs = [GENERAL_PROGRAM].concat(await seedDefaultPrograms(uniquePrograms, programsSeeded));
   unitLimits = limits;
   courseProgramMap = map;
   courseProgramRowId = mapRowId;
@@ -136,9 +153,11 @@ export function programById(id) {
   return programs.find(p => String(p.id) === String(id)) || null;
 }
 
-export function programLabel(id, fallback = 'Unknown') {
+export function programLabel(id, fallback = UNSPECIFIED_PROGRAM) {
   const p = programById(id);
-  return p ? p.code : fallback;
+  if (p) return p.code;
+  const empty = id === null || id === undefined || String(id).trim() === '';
+  return empty ? fallback : UNSPECIFIED_PROGRAM;
 }
 
 export function programOptionsHtml(selected, {
@@ -169,6 +188,40 @@ export function programCheckboxes(course) {
   `).join('');
 }
 
+/* A database with no program rows yet gets the programs this portal used to
+   ship with, as ordinary rows. It runs only once, so a program the Registrar
+   deletes stays deleted instead of being recreated on the next load. */
+async function seedDefaultPrograms(custom, alreadySeeded) {
+  if (custom.length || alreadySeeded) return custom;
+
+  const seeded = [];
+  for (const p of DEFAULT_PROGRAMS.filter(d => !d.general)) {
+    try {
+      const res = await supa('presets', {
+        method: 'POST',
+        body: {
+          name: PROGRAM_PREFIX + JSON.stringify({ code: p.code, name: p.name, id: p.id }),
+          program_id: p.id,
+          year_level: 1,
+          semester: '1st Semester'
+        }
+      });
+      seeded.push({ id: p.id, code: p.code, name: p.name, rowId: Array.isArray(res) && res[0] ? res[0].id : null });
+    } catch (e) {
+      console.error('Could not seed the default program', p.code, e);
+      seeded.push({ id: p.id, code: p.code, name: p.name, rowId: null });
+    }
+  }
+
+  // The marker keeps a fresh load from recreating programs the Registrar deletes.
+  await supa('presets', {
+    method: 'POST',
+    body: { name: PROGRAM_SEED_PREFIX + '1', program_id: 0, year_level: 1, semester: '1st Semester' }
+  }).catch((e) => console.error('Could not record the program seed marker', e));
+
+  return seeded;
+}
+
 function nextProgramId() {
   return Math.max(99, ...programs.map(p => Number(p.id) || 0)) + 1;
 }
@@ -195,19 +248,23 @@ export async function saveProgram({ id, code, name }) {
   }
 
   const existing = programs.find(p => String(p.id) === String(id));
-  if (!existing || !existing.rowId) throw new Error('This program could not be found.');
+  if (!existing) throw new Error('This program could not be found.');
 
-  await supa('presets', {
-    method: 'PATCH',
-    match: { id: existing.rowId },
-    body: { name: PROGRAM_PREFIX + JSON.stringify(payload) }
-  });
+  const row = { name: PROGRAM_PREFIX + JSON.stringify(payload) };
+  if (existing.rowId) {
+    await supa('presets', { method: 'PATCH', match: { id: existing.rowId }, body: row });
+  } else {
+    await supa('presets', {
+      method: 'POST',
+      body: { ...row, program_id: Number(id), year_level: 1, semester: '1st Semester' }
+    });
+  }
   return Number(id);
 }
 
 export async function deleteProgram(id) {
   const existing = programs.find(p => String(p.id) === String(id));
-  if (!existing || !existing.rowId) throw new Error('Only programs created here can be deleted.');
+  if (!existing || !existing.rowId) throw new Error('This program could not be found.');
 
   await supa('presets', { method: 'DELETE', match: { id: existing.rowId } });
 
@@ -237,11 +294,21 @@ export function getCourseProgramIds(course) {
   return [Number(course && course.program_id)];
 }
 
-// A subject is offered to a program when it is general (0) or listed for it.
+// A subject is offered to a program when it is general (0), listed for it, or
+// points at a program that no longer exists (Unspecified behaves like General).
 export function courseMatchesProgram(course, programId) {
   const ids = getCourseProgramIds(course);
   if (ids.includes(0)) return true;
+  if (!ids.some(id => programById(id))) return true;
   return ids.some(id => String(id) === String(programId));
+}
+
+// A preset is offered when it belongs to the program, or is General/Unspecified.
+export function presetMatchesProgram(preset, programId) {
+  const pid = preset && preset.program_id;
+  if (String(pid) === '0') return true;
+  if (!programById(pid)) return true;
+  return String(pid) === String(programId);
 }
 
 export function courseProgramLabels(course) {

@@ -1291,7 +1291,7 @@ export async function renderRegistrarPrograms() {
 
   return `
     <div class="rp-toolbar" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
-      <div class="rp-hint" style="max-width:560px;">Programs created here appear in the student application form, the subject curriculum, presets, prerequisite sets, unit limits and the faculty portal.</div>
+      <div class="rp-hint" style="max-width:560px;">Programs appear in the student application form, subject curriculum, presets, prerequisite sets, unit limits and the faculty portal. Deleting one leaves its subjects and presets as <strong>Unspecified</strong>, which are offered to every program.</div>
       <button class="rp-btn rp-btn-primary" data-action="regCreateProgram">＋ New Program</button>
     </div>
 
@@ -1306,10 +1306,8 @@ export async function renderRegistrarPrograms() {
               <td>${studentsOf(p.id)}</td>
               <td>${subjectsOf(p.id)}</td>
               <td style="text-align:right; white-space:nowrap;">
-                ${p.rowId ? `
-                  <button class="rp-btn rp-btn-primary rp-btn-sm" data-action="regEditProgram" data-id="${p.id}">Edit</button>
-                  <button class="rp-btn rp-btn-danger rp-btn-sm" data-action="regDeleteProgram" data-id="${p.id}">Delete</button>
-                ` : '<span class="rp-hint">Built in</span>'}
+                <button class="rp-btn rp-btn-primary rp-btn-sm" data-action="regEditProgram" data-id="${p.id}">Edit</button>
+                ${p.rowId ? `<button class="rp-btn rp-btn-danger rp-btn-sm" data-action="regDeleteProgram" data-id="${p.id}">Delete</button>` : ''}
               </td>
             </tr>
           `).join('') : '<tr><td colspan="5" class="rp-empty">No programs found.</td></tr>'}
