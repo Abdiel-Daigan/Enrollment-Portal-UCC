@@ -9,6 +9,7 @@
 
 import { esc } from './utils.js';
 import { programLabel, getAcademicTerm } from './catalog.js';
+import { applicationStatus } from './status.js';
 
 export function registrationFormHtml({
   app = {},
@@ -53,6 +54,10 @@ export function registrationFormHtml({
   // The Registrar sets the current term, so the form always prints the term
   // the student is actually enrolling in.
   const term = getAcademicTerm();
+
+  // The ENROLLED stamp belongs only to a student who is officially enrolled.
+  // An applicant or an enrollee prints the very same form without the stamp.
+  const enrolled = applicationStatus(app) === 'Enrolled';
 
   return `
     <div class="progress-card" style="background:#fff; color:#000; font-family: 'Times New Roman', Times, serif; max-width: 800px; margin: 0 auto; padding: 40px;">
@@ -121,7 +126,8 @@ export function registrationFormHtml({
       </table>
       </div>
 
-      <!-- STAMP -->
+      <!-- STAMP (only for an officially enrolled student) -->
+      ${enrolled ? `
       <div style="display:flex; justify-content:center; margin:30px 0;">
         <div style="border: 3px solid #2e7d32; color: #2e7d32; padding: 10px 30px; border-radius: 8px; text-align:center; transform: rotate(-5deg);">
           <p style="font-size:12px; font-weight:bold; margin-bottom:5px;">UCC ADMISSIONS OFFICE</p>
@@ -129,6 +135,7 @@ export function registrationFormHtml({
           <p style="font-size:12px;">Date: ${new Date().toLocaleDateString()}</p>
         </div>
       </div>
+      ` : ''}
 
       <!-- SIGNATURES -->
       <div style="display:flex; flex-wrap:wrap; justify-content:space-between; gap:16px; font-size:11px; margin-top:40px;">

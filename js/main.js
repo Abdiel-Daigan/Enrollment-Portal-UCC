@@ -3,6 +3,7 @@ import { supa } from './api.js';
 import { session, loadSession, doLogin, doRegister, doLogout } from './auth.js';
 import { renderStudentDashboard, renderApply, renderPaymentTab, renderScheduleTab, renderRegistrationTab, renderStudentDocumentsTab } from './student.js';
 import { renderAdminDashboard } from './admin.js';
+import { renderAdminUsers, renderAdminRecords, createStaffUser } from './adminmanage.js';
 import { renderFacultyDashboard, renderFacultyProgress } from './faculty.js';
 import { renderAccountingDashboard, renderAccountingLogs, renderAccountingSettings, renderAccountingStudents, accountingManageStudentModal } from './accounting.js';
 import {
@@ -12,7 +13,6 @@ import {
   renderRegistrarStudents,
   renderRegistrarPrereqs,
   renderRegistrarPrograms,
-  renderRegistrarUnitLimits,
   renderRegistrarAcademicTerm,
   regManageStudentModal,
   regEditPresetModal,
@@ -20,9 +20,22 @@ import {
   regEditPrereqModal,
   regProgramModal
 } from './registrar.js';
+import { renderRegistrarUnitLimits, regUnitLimitModal } from './unitlimits.js';
 import { decodePrereqSet, hydratePrereqSets, encodePrereqName, evaluatePrerequisites, missingLabel } from './prereqs.js';
-import { loadCatalog, saveProgram, deleteProgram, saveCoursePrograms, saveUnitLimit, deleteUnitLimit, findUnitLimit, saveAcademicTerm, currentSemester, SEMESTERS } from './catalog.js';
+import {
+  loadCatalog,
+  saveProgram,
+  deleteProgram,
+  saveCoursePrograms,
+  saveProgramUnitLimits,
+  saveAcademicTerm,
+  findUnitLimit,
+  prereqMatchesProgram,
+  refreshProgramPickers,
+  getPickedProgramIds
+} from './catalog.js';
 import { docsForType, docsComplete, docsUploaded } from './documents.js';
+import { isAccepted, canAccept } from './status.js';
 import { renderTemplate, preloadTemplates, setActiveNav } from './templates.js';
 
 loadSession();
@@ -118,34 +131,79 @@ export async function renderAll() {
 }
 
 // --- SIMULATED PAYMENT (STUDENT) ---
+const pesoLabel = (n) => '₱' + Number(n || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 });
+
+/* Records one online payment and updates the application in the same step, so
+   the receipt the student prints and the amount the portals read always agree. */
+async function recordStudentPayment(amount, paymentType) {
+  const apps = await supa('applications', { match: { user_id: session.userId } }).catch(() => []);
+  const app = apps[0] || {};
+  const newPaid = Number(app.amount_paid || 0) + Number(amount);
+
+  await supa('applications', {
+    method: 'PATCH',
+    match: { user_id: session.userId },
+    body: isAccepted(app) ? { amount_paid: newPaid, status: 'Enrolled' } : { amount_paid: newPaid }
+  });
+
+  await supa('payment_logs', {
+    method: 'POST',
+    body: {
+      user_id: session.userId,
+      amount: Number(amount),
+      reference_no: 'PAY-ONL-' + Date.now().toString().slice(-6),
+      payment_type: paymentType,
+      processed_by: 'Online'
+    }
+  });
+}
+
+// Student IDs look like UCC-2026-0001 and are numbered per calendar year.
+async function nextStudentId() {
+  const users = await supa('users').catch(() => []);
+  const prefix = `UCC-${new Date().getFullYear()}-`;
+  const highest = users.reduce((max, u) => {
+    const id = String(u.student_id || '');
+    if (!id.startsWith(prefix)) return max;
+    const n = Number(id.slice(prefix.length));
+    return Number.isFinite(n) ? Math.max(max, n) : max;
+  }, 0);
+  return prefix + String(highest + 1).padStart(4, '0');
+}
+
 window.payTuition = async (type, total, currentPaid) => {
-  let amountToAdd = type === 'half' ? (Number(total) - Number(currentPaid)) / 2 : (Number(total) - Number(currentPaid));
-  if (!confirm(`Simulate paying ₱${amountToAdd.toLocaleString('en-PH', {minimumFractionDigits:2})}?`)) return;
+  const balance = Number(total) - Number(currentPaid);
+  const amountToAdd = type === 'half' ? balance / 2 : balance;
+  if (!(amountToAdd > 0)) return toast('There is nothing left to pay.', 'error');
+  if (!confirm(`Simulate paying ${pesoLabel(amountToAdd)}?`)) return;
 
   try {
-    const newPaid = Number(currentPaid) + Number(amountToAdd);
-    const refNo = 'PAY-ONL-' + Date.now().toString().slice(-6);
+    await recordStudentPayment(amountToAdd, type === 'half' ? 'Downpayment' : 'Full Payment');
+    toast('Payment successful!');
+    window.currentView = 'schedule';
+    renderAll();
+  } catch (err) {
+    console.error('Payment Error Details:', err);
+    toast('Payment failed. Check console (F12) for details.', 'error');
+  }
+};
 
-    // Paying after the documents were confirmed makes the student enrolled.
-    const apps = await supa('applications', { match: { user_id: session.userId } }).catch(() => []);
-    const confirmed = docsComplete(apps[0]);
-    await supa('applications', {
-      method: 'PATCH',
-      match: { user_id: session.userId },
-      body: confirmed ? { amount_paid: newPaid, status: 'Enrolled' } : { amount_paid: newPaid }
-    });
+// Third option: the student types any amount up to the remaining balance.
+window.payCustomAmount = async (total, currentPaid) => {
+  const input = document.getElementById('customPayAmount');
+  const amount = Number(input ? input.value : NaN);
+  const balance = Number(total) - Number(currentPaid);
 
-    await supa('payment_logs', {
-      method: 'POST',
-      body: {
-        user_id: session.userId,
-        amount: amountToAdd,
-        reference_no: refNo,
-        payment_type: type === 'half' ? 'Downpayment' : 'Full Payment',
-        processed_by: 'Online'
-      }
-    });
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return toast('Enter an amount greater than zero.', 'error');
+  }
+  if (amount > balance + 0.001) {
+    return toast(`That is more than the remaining balance of ${pesoLabel(balance)}.`, 'error');
+  }
+  if (!confirm(`Simulate paying ${pesoLabel(amount)}?`)) return;
 
+  try {
+    await recordStudentPayment(amount, 'Custom Amount');
     toast('Payment successful!');
     window.currentView = 'schedule';
     renderAll();
@@ -163,11 +221,16 @@ async function renderAuthPage() {
 // --- ADMIN LAYOUT ---
 const ADMIN_VIEWS = {
   dashboard: { label: 'Dashboard', sub: 'System-wide overview' },
-  students: { label: 'Students', sub: 'Registrar records' },
+  students: { label: 'Student Management', sub: 'Registrar records' },
+  users: { label: 'Staff Accounts', sub: 'Create Registrar, Accounting and Faculty logins' },
+  records: { label: 'Application Records', sub: 'Every record, with delete' },
+  programs: { label: 'Programs', sub: 'Degree programs offered' },
+  unitlimits: { label: 'Unit Limits', sub: 'Maximum units per program and year level' },
+  academicterm: { label: 'Academic Term', sub: 'Current semester and school year' },
   courses: { label: 'Subjects', sub: 'Curriculum' },
   presets: { label: 'Preset Subjects', sub: 'Curriculum' },
   prereqs: { label: 'Prerequisite Subjects', sub: 'Curriculum' },
-  faculty: { label: 'Faculty Check', sub: 'Assign student subjects' },
+  faculty: { label: 'Student Courses', sub: 'Assign student subjects' },
   logs: { label: 'Payment Logs', sub: 'Accounting' },
   payments: { label: 'Student Payments', sub: 'Accounting' },
   fees: { label: 'Fee Settings', sub: 'Accounting' }
@@ -218,6 +281,11 @@ async function renderAdminLayout() {
 
   if (view === 'dashboard') content.innerHTML = await renderAdminDashboard();
   else if (view === 'students') content.innerHTML = await renderRegistrarStudents();
+  else if (view === 'users') content.innerHTML = await renderAdminUsers();
+  else if (view === 'records') content.innerHTML = await renderAdminRecords();
+  else if (view === 'programs') content.innerHTML = await renderRegistrarPrograms();
+  else if (view === 'unitlimits') content.innerHTML = await renderRegistrarUnitLimits();
+  else if (view === 'academicterm') content.innerHTML = await renderRegistrarAcademicTerm();
   else if (view === 'courses') content.innerHTML = await renderRegistrarCourses();
   else if (view === 'presets') content.innerHTML = await renderRegistrarPresets();
   else if (view === 'prereqs') content.innerHTML = await renderRegistrarPrereqs();
@@ -371,13 +439,19 @@ window.confirmStudentSubjects = async (studentId) => {
 
   try {
     // Enforce prerequisite sequences before anything is written.
-    const [recorded, presetRows, courses] = await Promise.all([
+    const [recorded, presetRows, courses, apps] = await Promise.all([
       supa('student_subjects', { match: { user_id: Number(studentId) } }).catch(() => []),
       supa('presets').catch(() => []),
-      supa('courses').catch(() => [])
+      supa('courses').catch(() => []),
+      supa('applications', { match: { user_id: Number(studentId) } }).catch(() => [])
     ]);
 
-    const prereqSets = hydratePrereqSets(presetRows.map(decodePrereqSet).filter(Boolean), courses);
+    let program = (apps[0] || {}).program || {};
+    if (typeof program === 'string') { try { program = JSON.parse(program); } catch (e) { program = {}; } }
+
+    // Only the sequences that apply to this student's program are enforced.
+    const prereqSets = hydratePrereqSets(presetRows.map(decodePrereqSet).filter(Boolean), courses)
+      .filter(set => prereqMatchesProgram(set, program.preferred));
     const passedIds = recorded
       .filter(s => String(s.remarks || '').trim() === 'Passed')
       .map(s => s.course_id);
@@ -399,12 +473,8 @@ window.confirmStudentSubjects = async (studentId) => {
 
     window.facultyPrereqErrors = [];
 
-    // Enforce the unit limit the Registrar set for this program/year/semester.
-    const apps = await supa('applications', { match: { user_id: Number(studentId) } }).catch(() => []);
-    let program = (apps[0] || {}).program || {};
-    if (typeof program === 'string') { try { program = JSON.parse(program); } catch (e) { program = {}; } }
-    const semester = SEMESTERS.includes(window.facultySemester) ? window.facultySemester : '1st Semester';
-    const limit = findUnitLimit(program.preferred, program.year_level, semester);
+    // Enforce the unit limit the Registrar set for this program and year level.
+    const limit = findUnitLimit(program.preferred, program.year_level);
 
     if (limit) {
       const unitsOf = (courseId) => {
@@ -580,10 +650,12 @@ document.addEventListener('click', async (e) => {
         body: {
           doc_status: docStatus,
           documents_verified: true,
-          status: Number(app.amount_paid || 0) > 0 ? 'Enrolled' : 'Enrollee'
+          // Completed documents no longer enrol anybody: the Registrar accepts
+          // the application, which is what makes the student an Enrollee.
+          status: 'Documents Complete'
         }
       });
-      toast('Documents confirmed. The Faculty can now assign your subjects.');
+      toast('Documents confirmed. The Registrar will now review and accept your application.');
       renderAll();
     } catch (err) {
       console.error(err);
@@ -595,7 +667,6 @@ document.addEventListener('click', async (e) => {
   if (action === 'facultyManageStudent') {
     window.facultySelectedStudent = Number(btn.dataset.id);
     window.tempStudentSubjects = [];
-    window.facultySemester = currentSemester();
     renderAll();
     return;
   }
@@ -608,12 +679,16 @@ document.addEventListener('click', async (e) => {
   if (action === 'facultyRemoveSubject') {
     const subjectId = Number(btn.dataset.id);
     try {
-      // Once the student has paid for the load, the assigned subjects are
-      // locked and only Accounting or the Registrar can change them.
+      // Once the student has paid for the load the Faculty can no longer change
+      // it. The Registrar and the Admin still can, after a warning.
       const studentApps = await supa('applications', { match: { user_id: Number(btn.dataset.student) } }).catch(() => []);
-      if (Number((studentApps[0] || {}).amount_paid || 0) > 0) {
-        return toast('This student has already paid, so the subject can no longer be removed.', 'error');
+      const paid = Number((studentApps[0] || {}).amount_paid || 0) > 0;
+
+      if (paid && session.role === 'faculty') {
+        return toast('This student has already paid, so the subject can no longer be removed here.', 'error');
       }
+      if (paid && !confirm('This student has already paid for this load. Removing the subject changes a paid enrollment. Continue?')) return;
+
       await supa('student_subjects', { method: 'DELETE', match: { id: subjectId } });
       toast('Subject removed.');
       renderAll();
@@ -623,7 +698,11 @@ document.addEventListener('click', async (e) => {
 
   // REGISTRAR ACTIONS
   if (action === 'regManageStudent') {
-    await regManageStudentModal(Number(btn.dataset.id));
+    await regManageStudentModal(
+      Number(btn.dataset.id),
+      undefined,
+      session.role === 'admin' ? 'ADMIN COPY' : 'REGISTRAR COPY'
+    );
     return;
   }
 
@@ -663,16 +742,112 @@ document.addEventListener('click', async (e) => {
     return;
   }
 
-  if (action === 'regDeleteUnitLimit') {
-    if (!confirm('Remove this unit limit?')) return;
+  if (action === 'regEditUnitLimits') {
+    await regUnitLimitModal(Number(btn.dataset.id));
+    return;
+  }
+
+  if (action === 'regAcceptStudent') {
+    const userId = Number(btn.dataset.id);
     try {
-      await deleteUnitLimit(Number(btn.dataset.id));
-      await loadCatalog();
-      toast('Unit limit removed.');
+      const apps = await supa('applications', { match: { user_id: userId } }).catch(() => []);
+      const app = apps[0];
+      if (!app) return toast('This application could not be found.', 'error');
+      if (isAccepted(app)) return toast('This student has already been accepted.');
+      if (!canAccept(app)) return toast('Every required document must be uploaded before the student can be accepted.', 'error');
+
+      const users = await supa('users', { match: { id: userId } }).catch(() => []);
+      const user = users[0] || {};
+      const studentId = user.student_id || await nextStudentId();
+
+      await supa('applications', {
+        method: 'PATCH',
+        match: { user_id: userId },
+        body: { status: Number(app.amount_paid || 0) > 0 ? 'Enrolled' : 'Enrollee' }
+      });
+      if (!user.student_id) {
+        await supa('users', { method: 'PATCH', match: { id: userId }, body: { student_id: studentId } });
+      }
+
+      toast(`Student accepted as an Enrollee. Student ID ${studentId} issued.`);
+      await regManageStudentModal(userId, 'documents', session.role === 'admin' ? 'ADMIN COPY' : 'REGISTRAR COPY');
       renderAll();
     } catch (err) {
       console.error(err);
-      toast('Failed to remove the unit limit.', 'error');
+      toast('Failed to accept the student.', 'error');
+    }
+    return;
+  }
+
+  if (action === 'accDeletePaymentLog') {
+    const logId = Number(btn.dataset.id);
+    const userId = Number(btn.dataset.student);
+    if (!confirm('Delete this payment log? The student receipt for it is removed as well.')) return;
+
+    try {
+      const logs = await supa('payment_logs', { match: { id: logId } }).catch(() => []);
+      const log = logs[0];
+      if (!log) return toast('This payment log no longer exists.', 'error');
+
+      const apps = await supa('applications', { match: { user_id: userId } }).catch(() => []);
+      const app = apps[0];
+      if (app) {
+        const newPaid = Math.max(0, Number(app.amount_paid || 0) - Number(log.amount || 0));
+        const body = { amount_paid: newPaid };
+        // Losing the last payment puts an accepted student back to Enrollee.
+        if (newPaid === 0 && isAccepted(app)) body.status = 'Enrollee';
+        await supa('applications', { method: 'PATCH', match: { user_id: userId }, body });
+      }
+
+      await supa('payment_logs', { method: 'DELETE', match: { id: logId } });
+      toast('Payment log deleted. The receipt is gone from the student portal.');
+      renderAll();
+    } catch (err) {
+      console.error(err);
+      toast('Failed to delete the payment log.', 'error');
+    }
+    return;
+  }
+
+  if (action === 'adminDeleteUser') {
+    const userId = Number(btn.dataset.id);
+    if (String(userId) === String(session.userId)) return toast('You cannot delete your own account.', 'error');
+    if (!confirm('Delete this account? The student records, subjects and payment logs of a student account are deleted too. This cannot be undone.')) return;
+    try {
+      const users = await supa('users', { match: { id: userId } }).catch(() => []);
+      if ((users[0] || {}).role === 'student') {
+        await supa('student_subjects', { method: 'DELETE', match: { user_id: userId } });
+        await supa('payment_logs', { method: 'DELETE', match: { user_id: userId } });
+        await supa('applications', { method: 'DELETE', match: { user_id: userId } });
+      }
+      await supa('users', { method: 'DELETE', match: { id: userId } });
+      toast('Account deleted.');
+      renderAll();
+    } catch (err) {
+      console.error(err);
+      toast('Failed to delete the account.', 'error');
+    }
+    return;
+  }
+
+  if (action === 'adminOpenRecord') {
+    await regManageStudentModal(Number(btn.dataset.id), 'documents', 'ADMIN COPY');
+    return;
+  }
+
+  if (action === 'adminDeleteRecord') {
+    const userId = Number(btn.dataset.id);
+    const name = btn.dataset.name || 'this student';
+    if (!confirm(`Delete the application record of ${name}? Subject and payment records for that student are deleted too.`)) return;
+    try {
+      await supa('student_subjects', { method: 'DELETE', match: { user_id: userId } });
+      await supa('payment_logs', { method: 'DELETE', match: { user_id: userId } });
+      await supa('applications', { method: 'DELETE', match: { user_id: userId } });
+      toast('Application record deleted.');
+      renderAll();
+    } catch (err) {
+      console.error(err);
+      toast('Failed to delete the record.', 'error');
     }
     return;
   }
@@ -705,15 +880,16 @@ document.addEventListener('click', async (e) => {
   if (action === 'regSavePrereq') {
     const id = document.getElementById('reg_prereq_id').value;
     const title = document.getElementById('reg_prereq_title').value.trim();
-    const prog = document.getElementById('reg_prereq_prog').value;
     const subjects = window.tempRegPrereqSubjects || [];
+    const programIds = getPickedProgramIds(document.getElementById('regPrereqPrograms'));
 
     if (!title) return toast('A title is required.', 'error');
     if (subjects.length < 2) return toast('Add at least two subjects to form a sequence.', 'error');
+    if (!programIds.length) return toast('Choose at least one program for this sequence.', 'error');
 
     const payload = {
-      name: encodePrereqName(title, subjects.map(s => s.id)),
-      program_id: Number(prog)
+      name: encodePrereqName(title, subjects.map(s => s.id), programIds),
+      program_id: programIds.includes(0) ? 0 : programIds[0]
     };
 
     try {
@@ -889,7 +1065,6 @@ document.addEventListener('change', async (e) => {
   else if (key === 'regLimitFilterProg') { window.regLimitFilterProg = e.target.value; renderAll(); }
   else if (key === 'regLimitFilterYear') { window.regLimitFilterYear = e.target.value; renderAll(); }
   else if (key === 'regLimitFilterSem') { window.regLimitFilterSem = e.target.value; renderAll(); }
-  else if (key === 'facultySemester') { window.facultySemester = e.target.value; renderAll(); }
   else if (key === 'regFilterProg') { window.regFilterProg = e.target.value; renderAll(); }
   else if (key === 'regFilterYear') { window.regFilterYear = e.target.value; renderAll(); }
   else if (key === 'regFilterStatus') { window.regFilterStatus = e.target.value; renderAll(); }
@@ -1014,7 +1189,12 @@ document.addEventListener('submit', async (e) => {
     const id = fd.get('program_id');
 
     try {
-      await saveProgram({ id: id ? Number(id) : null, code: fd.get('code'), name: fd.get('name') });
+      await saveProgram({
+        id: id ? Number(id) : null,
+        code: fd.get('code'),
+        name: fd.get('name'),
+        years: fd.get('years')
+      });
       await loadCatalog();
       toast(id ? 'Program updated.' : 'Program created.');
       document.getElementById('regProgramModal')?.remove();
@@ -1026,22 +1206,42 @@ document.addEventListener('submit', async (e) => {
     return;
   }
 
-  if (e.target.id === 'regUnitLimitForm') {
+  if (e.target.id === 'regProgramUnitLimitsForm') {
     const fd = new FormData(e.target);
+    const programId = fd.get('program_id');
+    const values = {};
+    for (const [key, value] of fd.entries()) {
+      if (key.startsWith('year_')) values[key.slice(5)] = value;
+    }
 
     try {
-      await saveUnitLimit({
-        programId: fd.get('program_id'),
-        year: fd.get('year'),
-        semester: fd.get('semester'),
-        maxUnits: fd.get('max_units')
-      });
+      await saveProgramUnitLimits(programId, values);
       await loadCatalog();
-      toast('Unit limit saved.');
+      toast('Unit limits saved.');
+      document.getElementById('regUnitLimitModal')?.remove();
       renderAll();
     } catch (err) {
       console.error(err);
-      toast(err.message || 'Failed to save the unit limit.', 'error');
+      toast(err.message || 'Failed to save the unit limits.', 'error');
+    }
+    return;
+  }
+
+  if (e.target.id === 'adminCreateUserForm') {
+    const fd = new FormData(e.target);
+    try {
+      await createStaffUser({
+        name: fd.get('name'),
+        email: fd.get('email'),
+        password: fd.get('password'),
+        role: fd.get('role')
+      });
+      toast('Staff account created.');
+      e.target.reset();
+      renderAll();
+    } catch (err) {
+      console.error(err);
+      toast(err.message || 'Failed to create the account.', 'error');
     }
     return;
   }
@@ -1085,20 +1285,24 @@ document.addEventListener('submit', async (e) => {
     const userId = Number(fd.get('user_id'));
     const amount = Number(fd.get('amount'));
     const currentPaid = Number(fd.get('current_paid'));
+    const totalAssessment = Number(fd.get('total_assessment'));
 
-    if (amount <= 0) return toast('Amount must be greater than 0', 'error');
+    if (!Number.isFinite(amount) || amount <= 0) return toast('Amount must be greater than 0', 'error');
+    if (totalAssessment > 0 && amount > totalAssessment - currentPaid + 0.001) {
+      return toast('That is more than the remaining balance.', 'error');
+    }
 
     try {
       const newPaid = currentPaid + amount;
       const refNo = 'PAY-ACC-' + Date.now().toString().slice(-6);
 
-      // A payment recorded after the documents were confirmed enrols the student.
+      // A payment on an accepted student makes them officially enrolled.
       const studentApps = await supa('applications', { match: { user_id: userId } }).catch(() => []);
-      const confirmed = docsComplete(studentApps[0]);
+      const accepted = isAccepted(studentApps[0]);
       await supa('applications', {
         method: 'PATCH',
         match: { user_id: userId },
-        body: confirmed ? { amount_paid: newPaid, status: 'Enrolled' } : { amount_paid: newPaid }
+        body: accepted ? { amount_paid: newPaid, status: 'Enrolled' } : { amount_paid: newPaid }
       });
 
       await supa('payment_logs', {
@@ -1196,6 +1400,7 @@ function setupDialog(backdrop) {
 function refreshEnhancements() {
   labelTableCells();
   labelIconButtons(document);
+  refreshProgramPickers(document);
   document.querySelectorAll('.rp-modal-backdrop').forEach(setupDialog);
 
   if (!document.querySelector('.rp-modal-backdrop')) {
@@ -1255,10 +1460,6 @@ window.regPresetFilterYear = 'all';
 window.regPresetFilterSem = 'all';
 window.regPrereqFilterProg = 'all';
 window.regCourseFilterProg = 'all';
-window.regLimitFilterProg = 'all';
-window.regLimitFilterYear = 'all';
-window.regLimitFilterSem = 'all';
-window.facultySemester = currentSemester();
 window.facultySelectedStudent = null;
 window.facultyPrereqErrors = [];
 window.accSearch = '';

@@ -38,9 +38,6 @@ export function missingRequiredDocs(app) {
 export const docsUploaded = (app) =>
   requiredDocIds(app && app.doc_type).length > 0 && missingRequiredDocs(app).length === 0;
 
-// The student pressed "Confirm All Documents". Only then may the Faculty see
-// the student and assign subjects.
+// The student pressed "Confirm All Documents". The Registrar still has to
+// accept the student before the Faculty can assign subjects (see status.js).
 export const docsComplete = (app) => !!(app && app.documents_verified);
-
-export const isVisibleToFaculty = (app) =>
-  !!(app && app.submitted && !app.returned && docsComplete(app));

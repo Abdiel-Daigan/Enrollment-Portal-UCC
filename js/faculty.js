@@ -2,9 +2,20 @@ import { esc, isHistorySubject } from './utils.js';
 import { supa } from './api.js';
 import { decodePrereqSet, hydratePrereqSets, evaluatePrerequisites, missingLabel } from './prereqs.js';
 import { reportCard } from './report.js';
-import { isMetaRow, programLabel, programOptionsHtml, courseMatchesProgram, presetMatchesProgram, findUnitLimit, getAcademicTerm, SEMESTERS } from './catalog.js';
-import { isVisibleToFaculty } from './documents.js';
-import { applicationStatus } from './status.js';
+import {
+  isMetaRow,
+  programLabel,
+  programOptionsHtml,
+  courseMatchesProgram,
+  presetMatchesProgram,
+  prereqMatchesProgram,
+  findUnitLimit,
+  getAcademicTerm,
+  allYearLevels,
+  yearLabel
+} from './catalog.js';
+import { isVisibleToFaculty, applicationStatus } from './status.js';
+import { session } from './auth.js';
 
 export async function renderFacultyDashboard() {
   const [students, apps, courses, subjectRows, presetRows] = await Promise.all([
@@ -50,7 +61,7 @@ export async function renderFacultyDashboard() {
     <div class="rp-grid-2">
       <div class="rp-card">
         <h3>College Department</h3>
-        <p class="rp-hint" style="margin-top:10px;">Go to <strong>Check Students</strong> to assign subjects. Only students who have confirmed their documents appear here.</p>
+        <p class="rp-hint" style="margin-top:10px;">Go to <strong>Check Students</strong> to assign subjects. Only students the Registrar has accepted appear here.</p>
       </div>
       <div class="rp-card">
         <h3>Prerequisite Sequences</h3>
@@ -69,6 +80,25 @@ export async function renderFacultyDashboard() {
   `;
 }
 
+/* Which year level a subject belongs to, from the presets that contain it.
+   A subject that is in no preset has no year level on record, so it is never
+   hidden by the year filter. */
+function courseYearIndex(presetRows, presetSubs) {
+  const years = new Map();
+  presetRows.forEach((preset) => {
+    const year = Number(preset.year_level);
+    if (!Number.isFinite(year)) return;
+    presetSubs
+      .filter(ps => String(ps.preset_id) === String(preset.id))
+      .forEach((ps) => {
+        const key = String(ps.course_id);
+        if (!years.has(key)) years.set(key, new Set());
+        years.get(key).add(year);
+      });
+  });
+  return years;
+}
+
 export async function renderFacultyProgress() {
   const students = await supa('users', { match: { role: 'student' } }).catch(() => []);
   if (!students.length) return `<div class="rp-empty">No students found.</div>`;
@@ -76,27 +106,29 @@ export async function renderFacultyProgress() {
   const courses = await supa('courses').catch(() => []);
   const subjects = await supa('student_subjects').catch(() => []);
   const apps = await supa('applications').catch(() => []);
-  const presets = await supa('presets').catch(() => []);
+  const presetRows = await supa('presets').catch(() => []);
   const presetSubs = await supa('preset_subjects').catch(() => []);
+
+  const presets = presetRows.filter(p => !isMetaRow(p));
   // Prerequisite sequences are stored in the presets table with a marker name.
-  const prereqSets = hydratePrereqSets(presets.map(decodePrereqSet).filter(Boolean), courses);
+  const allPrereqSets = hydratePrereqSets(presetRows.map(decodePrereqSet).filter(Boolean), courses);
 
   const searchQ = (window.facultySearch || '').toLowerCase();
   const filterYear = window.facultyFilterYear || '';
   const filterProg = window.facultyFilterProg || '';
+  const yearIndex = courseYearIndex(presets, presetSubs);
 
   const filteredStudents = students.filter(u => {
     const app = apps.find(a => String(a.user_id) === String(u.id)) || {};
     let pr = app.program || {};
     if (typeof pr === 'string') { try { pr = JSON.parse(pr); } catch(e){} }
-    
+
     // 1. Basic Filters
     const nameMatch = searchQ ? (u.name.toLowerCase().includes(searchQ) || (u.student_id && u.student_id.toLowerCase().includes(searchQ))) : true;
     const yearMatch = filterYear ? String(pr.year_level) === String(filterYear) : true;
     const progMatch = filterProg ? String(pr.preferred) === String(filterProg) : true;
-    
-    // 2. Only students who submitted their application and confirmed every
-    //    required document are visible to the Faculty.
+
+    // 2. Only students the Registrar has accepted may be given subjects.
     return isVisibleToFaculty(app) && nameMatch && yearMatch && progMatch;
   });
 
@@ -109,8 +141,17 @@ export async function renderFacultyProgress() {
       const progId = pr ? pr.preferred : null;
       const progName = progId ? programLabel(progId) : 'No Program';
       const isRegular = app.is_regular !== false;
-      
-      const programCourses = courses.filter(c => courseMatchesProgram(c, progId));
+      const studentYear = Number(pr.year_level) || 1;
+
+      // A subject may be added for the student's year level or a lower one
+      // (a retake), never for a higher year level.
+      const inYearRange = (courseId) => {
+        const years = yearIndex.get(String(courseId));
+        if (!years || !years.size) return true;
+        return [...years].some(y => y <= studentYear);
+      };
+
+      const programCourses = courses.filter(c => courseMatchesProgram(c, progId) && inYearRange(c.id));
       const allRecorded = subjects.filter(s => String(s.user_id) === String(student.id));
       // Subjects the Registrar already graded (Passed/Dropped) are history, not current load
       const completedSubjects = allRecorded.filter(isHistorySubject);
@@ -126,14 +167,17 @@ export async function renderFacultyProgress() {
         !tempIds.includes(String(c.id))
       );
 
-      // The Registrar's current term decides which presets may be offered.
+      // The Registrar's current term decides which presets may be offered, and
+      // the student's program and year narrows that down further.
       const term = getAcademicTerm();
       const matchingPresets = presets.filter(p =>
-        !isMetaRow(p)
-        && presetMatchesProgram(p, progId)
-        && String(p.year_level) === String(pr.year_level)
+        presetMatchesProgram(p, progId)
+        && String(p.year_level) === String(studentYear)
         && String(p.semester) === String(term.semester)
       );
+
+      // Only the sequences that apply to this student's program are enforced.
+      const prereqSets = allPrereqSets.filter(set => prereqMatchesProgram(set, progId));
 
       // Prerequisite check for the pending list: a subject may only be added when
       // everything before it in its sequence is passed already or also pending.
@@ -153,11 +197,12 @@ export async function renderFacultyProgress() {
         return `${c ? c.code : 'Subject'} — ${missingLabel(missing)}`;
       });
 
-      // Unit limit configured by the Registrar for this program/year/semester.
-      // The faculty selector starts on the term the Registrar set.
-      const semester = SEMESTERS.includes(window.facultySemester) ? window.facultySemester : term.semester;
+      // Unit limit the Registrar set for this program and year level.
       const isPaid = Number(app.amount_paid || 0) > 0;
-      const unitLimit = findUnitLimit(progId, pr.year_level, semester);
+      // A paid load is frozen for the Faculty, but the Registrar and the Admin
+      // may still correct it (the delete handler asks for a confirmation).
+      const canRemove = !isPaid || ['registrar', 'admin'].includes(session && session.role);
+      const unitLimit = findUnitLimit(progId, studentYear);
       const takenUnits = taken.reduce((sum, t) => {
         const c = courses.find(x => String(x.id) === String(t.course_id));
         return sum + (c ? Number(c.units) : 0);
@@ -165,6 +210,10 @@ export async function renderFacultyProgress() {
       const pendingUnits = window.tempStudentSubjects.reduce((sum, s) => sum + (Number(s.units) || 0), 0);
       const plannedUnits = takenUnits + pendingUnits;
       const overLimit = !!unitLimit && plannedUnits > unitLimit.maxUnits;
+
+      window.facultyCourseOptions = availableToAdd.map(c => ({
+        id: c.id, code: c.code, title: c.title, units: c.units
+      }));
 
       return `
         <div class="rp-toolbar" style="margin-bottom: 20px;">
@@ -175,17 +224,13 @@ export async function renderFacultyProgress() {
           <div class="rp-card-head" style="margin-bottom:0">
             <div>
               <h3>${esc(student.name)} <span class="rp-hint">(${esc(student.student_id || 'No ID')})</span></h3>
-              <div class="rp-hint">${esc(student.email)} · ${progName} - Year ${esc(pr.year_level || '?')}</div>
+              <div class="rp-hint">${esc(student.email)} · ${progName} - ${yearLabel(studentYear)}</div>
             </div>
             <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
               <label style="font-size:12.5px;font-weight:600;">Status:</label>
               <select class="rp-input" data-change="facultyRegularity" data-student="${student.id}" style="width:120px; padding:6px 10px;">
                 <option value="true" ${isRegular ? 'selected' : ''}>Regular</option>
                 <option value="false" ${!isRegular ? 'selected' : ''}>Irregular</option>
-              </select>
-              <label style="font-size:12.5px;font-weight:600;">Semester:</label>
-              <select class="rp-input" data-change="facultySemester" style="width:150px; padding:6px 10px;">
-                ${SEMESTERS.map(s => `<option value="${esc(s)}" ${semester === s ? 'selected' : ''}>${esc(s)}</option>`).join('')}
               </select>
             </div>
           </div>
@@ -197,7 +242,7 @@ export async function renderFacultyProgress() {
               <h3>Pre-Confirmed List</h3>
               <span class="rp-hint">${window.tempStudentSubjects.length} subject(s) · ${plannedUnits}${unitLimit ? ' / ' + unitLimit.maxUnits : ''} units</span>
             </div>
-            
+
             <div id="tempSubjectList" style="flex:1;">
               ${window.tempStudentSubjects.length ? window.tempStudentSubjects.map((s, idx) => {
                 const missing = prereqProblems.get(String(s.courseId));
@@ -228,7 +273,7 @@ export async function renderFacultyProgress() {
                 <div>
                   <strong>Unit limit exceeded</strong>
                   <div class="rp-hint" style="color:inherit;">
-                    ${esc(progName)} · Year ${esc(pr.year_level || '?')} · ${esc(semester)} allows a maximum of ${unitLimit.maxUnits} units.
+                    ${esc(progName)} · ${yearLabel(studentYear)} allows a maximum of ${unitLimit.maxUnits} units.
                     This load is ${plannedUnits} units (${plannedUnits - unitLimit.maxUnits} over).
                   </div>
                   <div class="rp-hint">Remove subjects from the list, or ask the Registrar to raise the limit in Unit Limits.</div>
@@ -244,13 +289,9 @@ export async function renderFacultyProgress() {
           <div class="rp-card">
             <div class="rp-card-head"><h3>Add Subjects</h3></div>
 
-            <div class="rp-notice info" style="margin-bottom:14px;">
-              <span>Current term: <strong>${esc(term.semester)}</strong> · S.Y. ${esc(term.schoolYear)}. Only ${esc(term.semester)} presets are offered here.</span>
-            </div>
-            
             ${matchingPresets.length ? `
               <div style="margin-bottom: 20px; background:var(--mint-100); padding: 14px; border-radius: 10px;">
-                <div style="font-size:13px; font-weight:700; margin-bottom:6px; color:var(--mint-800)">Available Presets</div>
+                <div style="font-size:13px; font-weight:700; margin-bottom:6px; color:var(--mint-800)">Available Presets — ${esc(term.semester)}</div>
                 ${matchingPresets.map(mp => {
                   const subCount = presetSubs.filter(ps => String(ps.preset_id) === String(mp.id)).length;
                   return `
@@ -266,23 +307,30 @@ export async function renderFacultyProgress() {
               </div>
             ` : ''}
 
-            <form id="facultyAddSubjectForm" style="display:flex; gap:10px; flex-direction: column;">
-              <input type="hidden" name="student_id" value="${student.id}">
-              <select class="rp-input" name="course_id" required>
-                <option value="">Select a course to add manually...</option>
-                ${availableToAdd.map(c => `<option value="${c.id}">${esc(c.code)} — ${esc(c.title)} (${c.units} units)</option>`).join('')}
-              </select>
-              <button type="button" class="rp-btn rp-btn-ghost" style="justify-content: center; border: 1px dashed var(--mint-500);" onclick="window.tempAddSubject('${student.id}')">Add to List</button>
-            </form>
+            <div class="course-picker">
+              <div class="field" style="margin-bottom:0;">
+                <label>Find a subject</label>
+                <input class="rp-input course-picker-search" type="search" placeholder="Type a course code or title to narrow the list…"
+                       oninput="window.filterFacultyCourses(this)">
+              </div>
+              <form id="facultyAddSubjectForm" style="display:flex; gap:10px; flex-direction: column;">
+                <input type="hidden" name="student_id" value="${student.id}">
+                <select class="rp-input" name="course_id" id="facultyCourseSelect" required>
+                  <option value="">${availableToAdd.length} subject(s) available — select one</option>
+                  ${availableToAdd.map(c => `<option value="${c.id}">${esc(c.code)} — ${esc(c.title)} (${c.units} units)</option>`).join('')}
+                </select>
+                <p class="rp-hint">Showing ${esc(progName)} subjects for ${yearLabel(studentYear)} and below.</p>
+                <button type="button" class="rp-btn rp-btn-ghost" style="justify-content: center; border: 1px dashed var(--mint-500);" onclick="window.tempAddSubject('${student.id}')">Add to List</button>
+              </form>
+            </div>
           </div>
         </div>
 
         <div class="rp-card" style="margin-top: 20px;">
           <div class="rp-card-head">
-            <h3>Subjects to be added</h3>
+            <h3>Student Course(s)</h3>
             <span class="rp-badge green">${taken.length} subject(s)</span>
           </div>
-          ${isPaid ? `<p class="rp-hint" style="margin-bottom:8px;">This student has already paid, so the assigned subjects can no longer be removed here.</p>` : ''}
           ${taken.length ? taken.map(t => {
             const c = courses.find(x => String(x.id) === String(t.course_id));
             return `
@@ -293,9 +341,9 @@ export async function renderFacultyProgress() {
                 </div>
                 <div style="display:flex; gap: 8px; align-items: center;">
                   <span class="rp-badge ${isPaid ? 'green' : 'gold'}">${isPaid ? 'Paid' : 'Pending Payment'}</span>
-                  ${isPaid
-                    ? '<span class="rp-hint">Locked</span>'
-                    : `<button class="rp-btn rp-btn-danger rp-btn-sm" data-action="facultyRemoveSubject" data-id="${t.id}" data-student="${student.id}">✕</button>`}
+                  ${canRemove
+                    ? `<button class="rp-btn rp-btn-danger rp-btn-sm" data-action="facultyRemoveSubject" data-id="${t.id}" data-student="${student.id}">✕</button>`
+                    : ''}
                 </div>
               </div>
             `;
@@ -305,7 +353,7 @@ export async function renderFacultyProgress() {
         ${completedSubjects.length ? `
         <div class="rp-card" style="margin-top: 20px;">
           <div class="rp-card-head">
-            <h3>Subjects Already Taken</h3>
+            <h3>Course(s) Already Passed</h3>
             <span class="rp-badge grey">${completedSubjects.length} subject(s)</span>
           </div>
           ${completedSubjects.map(t => {
@@ -337,10 +385,7 @@ export async function renderFacultyProgress() {
       <div style="width: 150px;">
         <select class="rp-input" data-change="facultyFilterYear">
           <option value="">All Years</option>
-          <option value="1" ${filterYear === '1' ? 'selected' : ''}>1st Year</option>
-          <option value="2" ${filterYear === '2' ? 'selected' : ''}>2nd Year</option>
-          <option value="3" ${filterYear === '3' ? 'selected' : ''}>3rd Year</option>
-          <option value="4" ${filterYear === '4' ? 'selected' : ''}>4th Year</option>
+          ${allYearLevels().map(y => `<option value="${y}" ${String(filterYear) === String(y) ? 'selected' : ''}>${yearLabel(y)}</option>`).join('')}
         </select>
       </div>
       <div style="width: 150px;">
@@ -351,7 +396,7 @@ export async function renderFacultyProgress() {
     </div>
 
     <div class="rp-notice info" style="margin-bottom: 16px;">
-      <span>Only students who have <strong>confirmed their documents</strong> appear here.</span>
+      <span>Only students the Registrar has <strong>accepted</strong> appear here.</span>
     </div>
 
     <div class="rp-table-wrap">
@@ -363,21 +408,36 @@ export async function renderFacultyProgress() {
             let pr = app.program || {};
             if (typeof pr === 'string') { try { pr = JSON.parse(pr); } catch(e){} }
             const progName = programLabel(pr.preferred);
-            
+
             return `
               <tr>
                 <td><strong>${esc(u.name)}</strong></td>
                 <td>${esc(u.student_id || '—')}</td>
                 <td><span class="rp-badge green">${progName}</span></td>
-                <td>Year ${esc(pr.year_level || '?')}</td>
+                <td>${yearLabel(pr.year_level || 1)}</td>
                 <td style="text-align:right">
                   <button class="rp-btn rp-btn-primary rp-btn-sm" data-action="facultyManageStudent" data-id="${u.id}">Manage Student</button>
                 </td>
               </tr>
             `;
-          }).join('') : '<tr><td colspan="5" class="rp-empty">No verified students found.</td></tr>'}
+          }).join('') : '<tr><td colspan="5" class="rp-empty">No accepted students found.</td></tr>'}
         </tbody>
       </table>
     </div>
   `;
 }
+
+// Live filter for the manual subject list so a long curriculum is easy to scan.
+window.filterFacultyCourses = (input) => {
+  const select = document.getElementById('facultyCourseSelect');
+  if (!select) return;
+  const query = String(input.value || '').trim().toLowerCase();
+  const options = (window.facultyCourseOptions || []).filter(o =>
+    !query || String(o.code).toLowerCase().includes(query) || String(o.title).toLowerCase().includes(query)
+  );
+
+  select.innerHTML = options.length
+    ? `<option value="">${options.length} subject(s) available — select one</option>` +
+      options.map(o => `<option value="${o.id}">${esc(o.code)} — ${esc(o.title)} (${o.units} units)</option>`).join('')
+    : '<option value="">No subject matches that search</option>';
+};

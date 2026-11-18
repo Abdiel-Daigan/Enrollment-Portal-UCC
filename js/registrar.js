@@ -2,8 +2,8 @@ import { esc, toast, isHistorySubject } from './utils.js';
 import { supa } from './api.js';
 import { decodePrereqSet, hydratePrereqSets } from './prereqs.js';
 import { reportCard } from './report.js';
-import { DOC_TYPES, docsComplete } from './documents.js';
-import { applicationStatus, statusTone, isEnrolled } from './status.js';
+import { DOC_TYPES, docsComplete, missingRequiredDocs } from './documents.js';
+import { applicationStatus, statusTone, isEnrolled, isAccepted, canAccept, hasRegistrationForm } from './status.js';
 import { registrationFormHtml } from './regform.js';
 import {
   isMetaRow,
@@ -11,15 +11,17 @@ import {
   programById,
   programLabel,
   programOptionsHtml,
-  programCheckboxes,
+  programPickerHtml,
   getCourseProgramIds,
   courseMatchesProgram,
   courseProgramLabels,
-  getUnitLimits,
-  findUnitLimit,
+  presetMatchesProgram,
+  prereqMatchesProgram,
   getAcademicTerm,
   currentSemester,
-  YEAR_LEVELS,
+  allYearLevels,
+  yearLabel,
+  MAX_PROGRAM_YEARS,
   SEMESTERS
 } from './catalog.js';
 
@@ -146,6 +148,7 @@ export async function renderRegistrarStudents() {
     let statusMatch = true;
     if (filterStatus === 'enrolled') statusMatch = statusLabel === 'Enrolled';
     else if (filterStatus === 'enrollee') statusMatch = statusLabel === 'Enrollee';
+    else if (filterStatus === 'documents') statusMatch = statusLabel === 'Documents Complete';
     else if (filterStatus === 'applicant') statusMatch = statusLabel === 'Applicant';
 
     return nameMatch && progMatch && yearMatch && statusMatch;
@@ -167,17 +170,15 @@ export async function renderRegistrarStudents() {
       <div style="width: 140px;">
         <select class="rp-input" data-change="regFilterYear">
           <option value="">All Years</option>
-          <option value="1" ${filterYear === '1' ? 'selected' : ''}>1st Year</option>
-          <option value="2" ${filterYear === '2' ? 'selected' : ''}>2nd Year</option>
-          <option value="3" ${filterYear === '3' ? 'selected' : ''}>3rd Year</option>
-          <option value="4" ${filterYear === '4' ? 'selected' : ''}>4th Year</option>
+          ${allYearLevels().map(y => `<option value="${y}" ${String(filterYear) === String(y) ? 'selected' : ''}>${yearLabel(y)}</option>`).join('')}
         </select>
       </div>
       <div style="width: 160px;">
         <select class="rp-input" data-change="regFilterStatus">
           <option value="">All Statuses</option>
-          <option value="applicant" ${filterStatus === 'applicant' ? 'selected' : ''}>Applicant (Documents Not Confirmed)</option>
-          <option value="enrollee" ${filterStatus === 'enrollee' ? 'selected' : ''}>Enrollee (Confirmed, Unpaid)</option>
+          <option value="applicant" ${filterStatus === 'applicant' ? 'selected' : ''}>Applicant (Documents Incomplete)</option>
+          <option value="documents" ${filterStatus === 'documents' ? 'selected' : ''}>Documents Complete (Awaiting Acceptance)</option>
+          <option value="enrollee" ${filterStatus === 'enrollee' ? 'selected' : ''}>Enrollee (Accepted, Unpaid)</option>
           <option value="enrolled" ${filterStatus === 'enrolled' ? 'selected' : ''}>Enrolled</option>
         </select>
       </div>
@@ -202,7 +203,12 @@ export async function renderRegistrarStudents() {
                 <td>
                   <span class="rp-badge ${statusTone(statusLabel)}">${esc(statusLabel)}</span>
                 </td>
-                <td style="text-align:right">
+                <td style="text-align:right; white-space:nowrap;">
+                  ${isAccepted(app) ? '' : `
+                    <button class="rp-btn ${canAccept(app) ? 'rp-btn-primary' : 'rp-btn-ghost'} rp-btn-sm"
+                            data-action="regAcceptStudent" data-id="${app.user_id}"
+                            ${canAccept(app) ? '' : 'disabled title="Every required document must be uploaded before the student can be accepted."'}>Accept Student</button>
+                  `}
                   <button class="rp-btn rp-btn-primary rp-btn-sm" data-action="regManageStudent" data-id="${app.user_id}">Manage</button>
                 </td>
               </tr>
@@ -216,9 +222,12 @@ export async function renderRegistrarStudents() {
 
 const peso = (n) => Number(n || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 });
 
-export async function regManageStudentModal(userId, tab) {
-  window.regModalTab = tab || 'documents';
-  const activeTab = window.regModalTab;
+export async function regManageStudentModal(userId, tab, copyLabel = 'REGISTRAR COPY') {
+  // The registration form only exists for an accepted student, so the tab is
+  // never opened for an applicant.
+  const requestedTab = tab === 'registration' ? tab : (tab || 'documents');
+  window.regModalTab = requestedTab;
+  let activeTab = window.regModalTab;
 
   const users = await supa('users', { match: { id: userId } }).catch(() => []);
   const u = users[0] || {};
@@ -239,6 +248,17 @@ export async function regManageStudentModal(userId, tab) {
   const docs = DOC_TYPES[app.doc_type] || [];
   const uploaded = app.documents || {};
   const docStatus = app.doc_status || {};
+  const accepted = isAccepted(app);
+  const registrationAllowed = hasRegistrationForm(app);
+  const acceptReady = canAccept(app);
+  const missingDocs = missingRequiredDocs(app);
+
+  // Asking for the registration tab on a student without a form falls back to
+  // the documents tab instead of opening an empty pane.
+  if (window.regModalTab === 'registration' && !registrationAllowed) {
+    window.regModalTab = 'documents';
+    activeTab = 'documents';
+  }
 
   // ---------- Documents pane ----------
   const docRows = docs.length ? docs.map(d => {
@@ -277,21 +297,34 @@ export async function regManageStudentModal(userId, tab) {
     </div>
 
     <div style="margin-top: 24px; border-top: 1px solid #eee; padding-top: 20px;">
-      ${app.documents_verified ? `
-        <h4 style="margin-bottom: 10px; font-size:14px;">Documents Confirmed</h4>
+      ${accepted ? `
+        <h4 style="margin-bottom: 10px; font-size:14px;">Application Accepted</h4>
         <div class="rp-notice mint" style="margin-bottom:0;">
-          <span>The student confirmed these documents, so the application can no longer be returned. The Faculty can now assign subjects.</span>
+          <span>Status: <strong>${esc(applicationStatus(app))}</strong> · Student ID: <strong>${esc(u.student_id || 'not issued')}</strong>. The Faculty can now assign subjects.</span>
         </div>
       ` : `
-        <h4 style="margin-bottom: 10px; font-size:14px;">Return Application?</h4>
-        <p class="rp-hint" style="margin-bottom: 10px;">If a document is invalid or missing, you can return the application to the student with a reason. Once the student confirms the documents this option disappears.</p>
-        <form id="regReturnForm" style="display:flex; gap:10px;">
-          <input type="hidden" name="user_id" value="${userId}">
-          <input class="rp-input" name="feedback" placeholder="Reason for returning (e.g., Blurry PSA image)" required>
-          <button type="submit" class="rp-btn rp-btn-danger">Return Application</button>
-        </form>
+        <h4 style="margin-bottom: 10px; font-size:14px;">Accept Student</h4>
+        <p class="rp-hint" style="margin-bottom: 10px;">
+          ${acceptReady
+            ? 'Every required document is on file. Accepting turns the applicant into an Enrollee and issues the student ID number.'
+            : 'The Accept Student button unlocks only when every required document has been uploaded. Uploading no longer enrols a student by itself.'}
+        </p>
+        <button type="button" class="rp-btn rp-btn-primary" data-action="regAcceptStudent" data-id="${userId}" ${acceptReady ? '' : 'disabled'}>Accept Student</button>
+        ${!app.submitted ? '<span class="rp-hint" style="margin-left:10px;">The student has not submitted the application yet.</span>' : ''}
+        ${app.submitted && missingDocs.length ? `<span class="rp-hint" style="margin-left:10px;">${missingDocs.length} required document(s) still missing.</span>` : ''}
       `}
     </div>
+
+    ${!app.submitted || app.documents_verified ? '' : `
+    <div style="margin-top: 20px; border-top: 1px solid #eee; padding-top: 20px;">
+      <h4 style="margin-bottom: 10px; font-size:14px;">Return Application?</h4>
+      <p class="rp-hint" style="margin-bottom: 10px;">If a document is invalid or missing, you can return the application to the student with a reason. Once the student confirms the documents this option disappears.</p>
+      <form id="regReturnForm" style="display:flex; gap:10px;">
+        <input type="hidden" name="user_id" value="${userId}">
+        <input class="rp-input" name="feedback" placeholder="Reason for returning (e.g., Blurry PSA image)" required>
+        <button type="submit" class="rp-btn rp-btn-danger">Return Application</button>
+      </form>
+    </div>`}
   `;
 
   // ---------- Subjects pane ----------
@@ -499,15 +532,18 @@ export async function regManageStudentModal(userId, tab) {
   `;
 
   // ---------- Registration form pane ----------
-  // The same document the student prints, labelled as the Registrar's copy.
-  const registrationPane = registrationFormHtml({
-    app,
-    subjects: subjects.filter(s => !isHistorySubject(s)),
-    courses,
-    settings,
-    copyLabel: 'REGISTRAR COPY',
-    fallbackName: u.name
-  });
+  // The same document the student prints, labelled as the caller's copy. It is
+  // only issued to an accepted student (Enrollee) or an enrolled one.
+  const registrationPane = registrationAllowed
+    ? registrationFormHtml({
+      app,
+      subjects: subjects.filter(s => !isHistorySubject(s)),
+      courses,
+      settings,
+      copyLabel,
+      fallbackName: u.name
+    })
+    : `<div class="rp-notice info"><span>This student has no registration form yet. The form is issued after the Registrar accepts the application and the student becomes an Enrollee.</span></div>`;
 
   const modalHtml = `
     <div class="rp-modal-backdrop" id="regStudentModal">
@@ -522,15 +558,15 @@ export async function regManageStudentModal(userId, tab) {
         <div class="rp-modal-body">
           <div class="rp-tabs">
             <button type="button" class="rp-tab ${activeTab === 'documents' ? 'active' : ''}" data-tab="documents" onclick="window.regStudentModalTab('documents')">Documents</button>
-            <button type="button" class="rp-tab ${activeTab === 'subjects' ? 'active' : ''}" data-tab="subjects" onclick="window.regStudentModalTab('subjects')">Subjects Taken</button>
+            <button type="button" class="rp-tab ${activeTab === 'subjects' ? 'active' : ''}" data-tab="subjects" onclick="window.regStudentModalTab('subjects')">Course(s) Taken</button>
             <button type="button" class="rp-tab ${activeTab === 'record' ? 'active' : ''}" data-tab="record" onclick="window.regStudentModalTab('record')">Student Record</button>
-            <button type="button" class="rp-tab ${activeTab === 'registration' ? 'active' : ''}" data-tab="registration" onclick="window.regStudentModalTab('registration')">Registration Form</button>
+            ${registrationAllowed ? `<button type="button" class="rp-tab ${activeTab === 'registration' ? 'active' : ''}" data-tab="registration" onclick="window.regStudentModalTab('registration')">Registration Form</button>` : ''}
           </div>
 
           <div class="rp-pane ${activeTab === 'documents' ? 'active' : ''}" data-pane="documents">${documentsPane}</div>
           <div class="rp-pane ${activeTab === 'subjects' ? 'active' : ''}" data-pane="subjects">${subjectsPane}</div>
           <div class="rp-pane ${activeTab === 'record' ? 'active' : ''}" data-pane="record">${recordPane}</div>
-          <div class="rp-pane ${activeTab === 'registration' ? 'active' : ''}" data-pane="registration">${registrationPane}</div>
+          ${registrationAllowed ? `<div class="rp-pane ${activeTab === 'registration' ? 'active' : ''}" data-pane="registration">${registrationPane}</div>` : ''}
         </div>
         <div class="rp-modal-foot">
           <button type="button" class="rp-btn rp-btn-primary" onclick="document.getElementById('regStudentModal').remove()">Done</button>
@@ -544,6 +580,9 @@ export async function regManageStudentModal(userId, tab) {
 }
 
 window.regStudentModalTab = (tab) => {
+  // Never switch to a pane the student does not have (e.g. a registration form
+  // for an applicant) — the modal would go blank.
+  if (!document.querySelector(`#regStudentModal .rp-pane[data-pane="${tab}"]`)) return;
   window.regModalTab = tab;
   document.querySelectorAll('#regStudentModal .rp-pane').forEach(p => {
     p.classList.toggle('active', p.dataset.pane === tab);
@@ -640,7 +679,14 @@ window.regAddStudentSubject = async (userId) => {
 };
 
 window.regDeleteStudentSubject = async (rowId, userId) => {
-  if (!confirm('Remove this subject record from the student?')) return;
+  // A paid load can only be corrected by the Registrar or the Admin, and only
+  // after they acknowledge that the student has already paid for it.
+  const apps = await supa('applications', { match: { user_id: Number(userId) } }).catch(() => []);
+  const paid = Number((apps[0] || {}).amount_paid || 0) > 0;
+  const question = paid
+    ? 'This student has already paid for this load. Removing the subject changes a paid enrollment. Continue?'
+    : 'Remove this subject record from the student?';
+  if (!confirm(question)) return;
   try {
     await supa('student_subjects', { method: 'DELETE', match: { id: Number(rowId) } });
     toast('Subject record removed.');
@@ -674,7 +720,9 @@ export async function renderRegistrarPresets() {
   const filterSem = window.regPresetFilterSem || 'all';
 
   const filteredPresets = presets.filter(p => {
-    const progMatch = filterProg === 'all' || String(p.program_id) === String(filterProg);
+    // General and Unspecified presets are offered to every program, so they
+    // stay in the list when a single program is chosen.
+    const progMatch = filterProg === 'all' || presetMatchesProgram(p, filterProg);
     const yearMatch = filterYear === 'all' || String(p.year_level) === String(filterYear);
     const semMatch = filterSem === 'all' || String(p.semester) === String(filterSem);
     return progMatch && yearMatch && semMatch;
@@ -688,7 +736,7 @@ export async function renderRegistrarPresets() {
         </select>
         <select class="rp-input" data-change="regPresetFilterYear" style="width:140px;">
           <option value="all">All Years</option>
-          ${YEAR_LEVELS.map(y => `<option value="${y}" ${String(filterYear) === String(y) ? 'selected' : ''}>Year ${y}</option>`).join('')}
+          ${allYearLevels().map(y => `<option value="${y}" ${String(filterYear) === String(y) ? 'selected' : ''}>${yearLabel(y)}</option>`).join('')}
         </select>
         <select class="rp-input" data-change="regPresetFilterSem" style="width:170px;">
           <option value="all">All Semesters</option>
@@ -708,8 +756,8 @@ export async function renderRegistrarPresets() {
             return `
               <tr>
                 <td><strong>${esc(p.name)}</strong></td>
-                <td><span class="rp-badge ${p.program_id === '0' ? 'gold' : 'green'}">${pName}</span></td>
-                <td>Year ${p.year_level}</td>
+                <td><span class="rp-badge ${String(p.program_id) === '0' ? 'gold' : 'green'}">${pName}</span></td>
+                <td>${yearLabel(p.year_level)}</td>
                 <td>${esc(p.semester)}</td>
                 <td>${count} subject(s)</td>
                 <td style="text-align:right; white-space:nowrap;">
@@ -765,10 +813,8 @@ export async function renderRegistrarCourses() {
             </div>
           </div>
           <div class="field">
-            <label>Programs <span class="rp-hint">(a subject can belong to several)</span></label>
-            <div class="program-check-grid" id="regCreateCourseProgs">
-              ${programCheckboxes()}
-            </div>
+            <label>Offered to <span class="rp-hint">(pick one program, several, or General for all)</span></label>
+            ${programPickerHtml([], { id: 'regCreateCourseProgs' })}
           </div>
           <button type="submit" class="rp-btn rp-btn-primary" style="margin-top: 10px; justify-content: center;">Create Subject</button>
         </form>
@@ -868,18 +914,13 @@ export async function regEditPresetModal(presetId) {
                   <div class="field">
                     <label>Year Level</label>
                     <select class="rp-input" id="reg_preset_year" required>
-                      <option value="1" ${preset.year_level === '1' ? 'selected' : ''}>1st Year</option>
-                      <option value="2" ${preset.year_level === '2' ? 'selected' : ''}>2nd Year</option>
-                      <option value="3" ${preset.year_level === '3' ? 'selected' : ''}>3rd Year</option>
-                      <option value="4" ${preset.year_level === '4' ? 'selected' : ''}>4th Year</option>
+                      ${allYearLevels().map(y => `<option value="${y}" ${String(preset.year_level) === String(y) ? 'selected' : ''}>${esc(yearLabel(y))}</option>`).join('')}
                     </select>
                   </div>
                   <div class="field">
                     <label>Semester</label>
                     <select class="rp-input" id="reg_preset_sem" required>
-                      <option value="1st Semester" ${preset.semester === '1st Semester' ? 'selected' : ''}>1st Semester</option>
-                      <option value="2nd Semester" ${preset.semester === '2nd Semester' ? 'selected' : ''}>2nd Semester</option>
-                      <option value="Summer" ${preset.semester === 'Summer' ? 'selected' : ''}>Summer</option>
+                      ${SEMESTERS.map(sem => `<option value="${esc(sem)}" ${preset.semester === sem ? 'selected' : ''}>${esc(sem)}</option>`).join('')}
                     </select>
                   </div>
                 </div>
@@ -961,10 +1002,8 @@ export async function regEditCourseModal(courseId) {
               </div>
             </div>
             <div class="field">
-              <label>Programs <span class="rp-hint">(a subject can belong to several)</span></label>
-              <div class="program-check-grid" id="regEditCourseProgs">
-                ${programCheckboxes(c)}
-              </div>
+              <label>Offered to <span class="rp-hint">(pick one program, several, or General for all)</span></label>
+              ${programPickerHtml(getCourseProgramIds(c), { id: 'regEditCourseProgs' })}
             </div>
             <button type="button" class="rp-btn rp-btn-primary" data-action="regSaveEditedCourse" style="margin-top: 20px; width:100%;">Save Changes</button>
           </form>
@@ -1056,7 +1095,7 @@ export async function renderRegistrarPrereqs() {
   const filterProg = window.regPrereqFilterProg || 'all';
 
   const filtered = sets.filter(set =>
-    filterProg === 'all' || String(set.programId) === String(filterProg)
+    filterProg === 'all' || prereqMatchesProgram(set, filterProg)
   );
 
   const chainText = (set) => set.courses.length
@@ -1084,7 +1123,9 @@ export async function renderRegistrarPrereqs() {
           ${filtered.length ? filtered.map(set => `
             <tr>
               <td><strong>${esc(set.title)}</strong></td>
-              <td><span class="rp-badge green">${programLabel(set.programId)}</span></td>
+              <td style="white-space:normal;">${(set.programIds || []).length
+                ? set.programIds.map(id => `<span class="rp-badge ${String(id) === '0' ? 'gold' : 'green'}">${esc(programLabel(id))}</span>`).join(' ')
+                : '<span class="rp-badge grey">Unspecified</span>'}</td>
               <td>${chainText(set)}</td>
               <td style="text-align:right; white-space:nowrap;">
                 <button class="rp-btn rp-btn-primary rp-btn-sm" data-action="regEditPrereq" data-id="${set.id}">Edit</button>
@@ -1131,12 +1172,10 @@ export async function regEditPrereqModal(setId) {
                   <input class="rp-input" id="reg_prereq_title" value="${esc(set.title)}" placeholder="e.g. BSCS Programming Sequence">
                 </div>
                 <div class="field">
-                  <label>Program</label>
-                  <select class="rp-input" id="reg_prereq_prog">
-                    ${programOptionsHtml(set.programId)}
-                  </select>
+                  <label>Offered to</label>
+                  ${programPickerHtml(set.programIds || [], { id: 'regPrereqPrograms' })}
                 </div>
-                <div class="rp-hint">The student must take these subjects in the order shown on the right.</div>
+                <div class="rp-hint">The sequence is enforced for the programs ticked above (or every program when General is ticked). The student must take these subjects in the order shown on the right.</div>
               </div>
             </div>
 
@@ -1297,12 +1336,13 @@ export async function renderRegistrarPrograms() {
 
     <div class="rp-table-wrap">
       <table class="rp-table">
-        <thead><tr><th>Code</th><th>Program Name</th><th>Applicants</th><th>Subjects</th><th style="text-align:right">Actions</th></tr></thead>
+        <thead><tr><th>Code</th><th>Program Name</th><th>Year Levels</th><th>Applicants</th><th>Subjects</th><th style="text-align:right">Actions</th></tr></thead>
         <tbody>
           ${list.length ? list.map(p => `
             <tr>
               <td><strong>${esc(p.code)}</strong></td>
               <td>${esc(p.name)}</td>
+              <td>${esc(p.years || 4)} year level(s)</td>
               <td>${studentsOf(p.id)}</td>
               <td>${subjectsOf(p.id)}</td>
               <td style="text-align:right; white-space:nowrap;">
@@ -1338,7 +1378,13 @@ export async function regProgramModal(programId) {
               <label>Program Name</label>
               <input class="rp-input" name="name" value="${esc(existing ? existing.name : '')}" placeholder="e.g. BS Information Technology" required>
             </div>
-            <p class="rp-hint">The code is what appears in student records and reports. The full name is used in selection lists.</p>
+            <div class="field">
+              <label>Number of Year Levels</label>
+              <select class="rp-input" name="years" required>
+                ${Array.from({ length: MAX_PROGRAM_YEARS }, (_, i) => i + 1).map(n => `<option value="${n}" ${String(existing ? existing.years : 4) === String(n) ? 'selected' : ''}>${n} year${n > 1 ? 's' : ''}</option>`).join('')}
+              </select>
+            </div>
+            <p class="rp-hint">The code is what appears in student records and reports. The full name is used in selection lists. The year level count limits which years this program offers everywhere in the site.</p>
             <button type="submit" class="rp-btn rp-btn-primary" style="margin-top:6px;">${existing ? 'Save Changes' : 'Create Program'}</button>
           </form>
         </div>
@@ -1357,91 +1403,6 @@ export async function regProgramModal(programId) {
    reads these through catalog.js and blocks a subject load that is over the
    limit before the subjects can be confirmed.
    ========================================================================= */
-
-export async function renderRegistrarUnitLimits() {
-  const fProg = window.regLimitFilterProg || 'all';
-  const fYear = window.regLimitFilterYear || 'all';
-  const fSem = window.regLimitFilterSem || 'all';
-
-  const all = getUnitLimits();
-  const filtered = all.filter(l =>
-    (fProg === 'all' || String(l.programId) === String(fProg))
-    && (fYear === 'all' || String(l.year) === String(fYear))
-    && (fSem === 'all' || l.semester === fSem)
-  );
-
-  const canSet = fProg !== 'all' && fYear !== 'all' && fSem !== 'all';
-  const existing = canSet ? findUnitLimit(fProg, fYear, fSem) : null;
-
-  return `
-    <div class="rp-toolbar" style="gap:10px; flex-wrap:wrap;">
-      <div style="width:200px;">
-        <select class="rp-input" data-change="regLimitFilterProg">
-          ${programOptionsHtml(fProg, { all: true })}
-        </select>
-      </div>
-      <div style="width:150px;">
-        <select class="rp-input" data-change="regLimitFilterYear">
-          <option value="all">All Years</option>
-          ${YEAR_LEVELS.map(y => `<option value="${y}" ${String(fYear) === String(y) ? 'selected' : ''}>Year ${y}</option>`).join('')}
-        </select>
-      </div>
-      <div style="width:180px;">
-        <select class="rp-input" data-change="regLimitFilterSem">
-          <option value="all">All Semesters</option>
-          ${SEMESTERS.map(s => `<option value="${esc(s)}" ${fSem === s ? 'selected' : ''}>${esc(s)}</option>`).join('')}
-        </select>
-      </div>
-    </div>
-
-    ${canSet ? `
-      <div class="rp-card" style="max-width:560px; margin-bottom:20px; background:var(--mint-50);">
-        <div class="rp-card-head">
-          <h3>Maximum Units — ${esc(programLabel(fProg))} · Year ${esc(fYear)} · ${esc(fSem)}</h3>
-        </div>
-        <form id="regUnitLimitForm" style="display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap;">
-          <input type="hidden" name="program_id" value="${esc(fProg)}">
-          <input type="hidden" name="year" value="${esc(fYear)}">
-          <input type="hidden" name="semester" value="${esc(fSem)}">
-          <div class="field" style="flex:1 1 170px; margin-bottom:0;">
-            <label>Maximum units per semester</label>
-            <input class="rp-input" type="number" name="max_units" min="1" max="60" value="${existing ? existing.maxUnits : ''}" required>
-          </div>
-          <button type="submit" class="rp-btn rp-btn-primary">${existing ? 'Update Limit' : 'Set Limit'}</button>
-        </form>
-        <p class="rp-hint" style="margin-top:10px;">
-          ${existing
-            ? `Currently ${existing.maxUnits} units. Faculty cannot confirm a subject load above this for ${esc(programLabel(fProg))} · Year ${esc(fYear)} · ${esc(fSem)}.`
-            : 'No limit set yet — a student in this program, year and semester can be given any number of units.'}
-        </p>
-      </div>
-    ` : `
-      <div class="rp-notice info" style="margin-bottom:20px;">
-        <span>Choose a program, year level and semester to set the maximum number of units a student may take.</span>
-      </div>
-    `}
-
-    <div class="rp-table-wrap">
-      <table class="rp-table">
-        <thead><tr><th>Program</th><th>Year</th><th>Semester</th><th>Max Units</th><th style="text-align:right">Actions</th></tr></thead>
-        <tbody>
-          ${filtered.length ? filtered.map(l => `
-            <tr>
-              <td><strong>${esc(programLabel(l.programId))}</strong></td>
-              <td>Year ${l.year}</td>
-              <td>${esc(l.semester)}</td>
-              <td><span class="rp-badge green">${l.maxUnits} units</span></td>
-              <td style="text-align:right">
-                <button class="rp-btn rp-btn-danger rp-btn-sm" data-action="regDeleteUnitLimit" data-id="${l.rowId}">Delete</button>
-              </td>
-            </tr>
-          `).join('') : '<tr><td colspan="5" class="rp-empty">No unit limits set for this filter.</td></tr>'}
-        </tbody>
-      </table>
-    </div>
-  `;
-}
-
 
 /* =========================================================================
    ACADEMIC TERM

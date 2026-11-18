@@ -18,8 +18,14 @@ export function isPrereqRow(row) {
   return String((row && row.name) || '').startsWith(PREFIX);
 }
 
-export function encodePrereqName(title, courseIds) {
-  return PREFIX + JSON.stringify({ title: String(title || ''), courseIds: courseIds.map(Number) });
+// A sequence may apply to one program, several programs, or General (0).
+export function encodePrereqName(title, courseIds, programIds = []) {
+  const programs = [...new Set((programIds || []).map(Number).filter(n => Number.isFinite(n)))];
+  return PREFIX + JSON.stringify({
+    title: String(title || ''),
+    courseIds: courseIds.map(Number),
+    programIds: programs
+  });
 }
 
 export function decodePrereqSet(row) {
@@ -31,11 +37,19 @@ export function decodePrereqSet(row) {
     return null;
   }
   if (!data || typeof data !== 'object') return null;
+
+  // Older sequences only had a single program in the row itself.
+  const rawPrograms = Array.isArray(data.programIds) && data.programIds.length
+    ? data.programIds
+    : [row.program_id];
+  const programIds = rawPrograms.map(Number).filter(n => Number.isFinite(n));
+
   return {
     id: row.id,
     title: String(data.title || 'Untitled sequence'),
     courseIds: Array.isArray(data.courseIds) ? data.courseIds.map(Number) : [],
-    programId: row.program_id,
+    programIds,
+    programId: programIds[0] ?? row.program_id,
     yearLevel: row.year_level,
     semester: row.semester
   };

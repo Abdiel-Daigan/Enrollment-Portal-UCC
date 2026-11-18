@@ -2,6 +2,7 @@ import { esc, toast, isHistorySubject } from './utils.js';
 import { supa } from './api.js';
 import { reportCard } from './report.js';
 import { registrationFormHtml } from './regform.js';
+import { hasRegistrationForm } from './status.js';
 
 export async function renderAccountingDashboard() {
   const [logs, apps, users, subjects, courses, settingsRes] = await Promise.all([
@@ -130,10 +131,14 @@ export async function renderAccountingLogs() {
   logs.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 
   return `
+    <div class="rp-notice info" style="margin-bottom:16px;">
+      <span>Deleting a payment log also removes that receipt from the student's Payment tab and lowers the recorded amount paid.</span>
+    </div>
+
     <div class="rp-table-wrap">
       <table class="rp-table">
         <thead>
-          <tr><th>Date</th><th>Student</th><th>Reference No.</th><th>Type</th><th>Processed By</th><th style="text-align:right">Amount</th></tr>
+          <tr><th>Date</th><th>Student</th><th>Reference No.</th><th>Type</th><th>Processed By</th><th style="text-align:right">Amount</th><th style="text-align:right">Action</th></tr>
         </thead>
         <tbody>
           ${logs.length ? logs.map(log => {
@@ -146,9 +151,12 @@ export async function renderAccountingLogs() {
                 <td>${esc(log.payment_type)}</td>
                 <td><span class="rp-badge ${log.processed_by === 'Online' ? 'green' : 'gold'}">${esc(log.processed_by)}</span></td>
                 <td style="text-align:right; font-weight:800; color:var(--mint-700);">₱${Number(log.amount).toLocaleString('en-PH', {minimumFractionDigits:2})}</td>
+                <td style="text-align:right">
+                  <button class="rp-btn rp-btn-danger rp-btn-sm" data-action="accDeletePaymentLog" data-id="${log.id}" data-student="${log.user_id}">Delete</button>
+                </td>
               </tr>
             `;
-          }).join('') : '<tr><td colspan="6" class="rp-empty">No payment logs found.</td></tr>'}
+          }).join('') : '<tr><td colspan="7" class="rp-empty">No payment logs found.</td></tr>'}
         </tbody>
       </table>
     </div>
@@ -221,7 +229,7 @@ export async function renderAccountingStudents() {
   `;
 }
 
-export async function accountingManageStudentModal(studentId) {
+export async function accountingManageStudentModal(studentId, copyLabel = 'ACCOUNTING COPY') {
   const users = await supa('users', { match: { id: studentId } }).catch(() => []);
   const u = users[0];
   if (!u) return toast('This student could not be loaded.', 'error');
@@ -242,22 +250,28 @@ export async function accountingManageStudentModal(studentId) {
     if (c) totalUnits += Number(c.units);
   });
 
-  const tuition = totalUnits * settings.tuition_per_unit;
-  const total = tuition + settings.misc_fee + settings.reg_fee;
+  // No subject load means no assessment yet: the fixed fees are billed with
+  // the tuition, exactly as the Accounting dashboard reports it.
+  const tuition = totalUnits * Number(settings.tuition_per_unit || 0);
+  const total = totalUnits > 0 ? tuition + Number(settings.misc_fee || 0) + Number(settings.reg_fee || 0) : 0;
   const paid = Number(app.amount_paid || 0);
   const balance = total - paid;
 
-  const activeTab = window.accModalTab === 'registration' ? 'registration' : 'payments';
+  // The registration form only exists once the Registrar has accepted the student.
+  const registrationAllowed = hasRegistrationForm(app);
+  const activeTab = window.accModalTab === 'registration' && registrationAllowed ? 'registration' : 'payments';
 
   // The Accounting copy of the student's registration form.
-  const registrationPane = registrationFormHtml({
-    app,
-    subjects,
-    courses,
-    settings,
-    copyLabel: 'ACCOUNTING COPY',
-    fallbackName: u.name
-  });
+  const registrationPane = registrationAllowed
+    ? registrationFormHtml({
+      app,
+      subjects,
+      courses,
+      settings,
+      copyLabel,
+      fallbackName: u.name
+    })
+    : `<div class="rp-notice info"><span>This student has no registration form yet. The form is issued after the Registrar accepts the application.</span></div>`;
 
   const modalHtml = `
     <div class="rp-modal-backdrop" id="accStudentModal">
@@ -269,7 +283,7 @@ export async function accountingManageStudentModal(studentId) {
         <div class="rp-modal-body">
           <div class="rp-tabs">
             <button type="button" class="rp-tab ${activeTab === 'payments' ? 'active' : ''}" data-tab="payments" onclick="window.accStudentModalTab('payments')">Payments</button>
-            <button type="button" class="rp-tab ${activeTab === 'registration' ? 'active' : ''}" data-tab="registration" onclick="window.accStudentModalTab('registration')">Registration Form</button>
+            ${registrationAllowed ? `<button type="button" class="rp-tab ${activeTab === 'registration' ? 'active' : ''}" data-tab="registration" onclick="window.accStudentModalTab('registration')">Registration Form</button>` : ''}
           </div>
 
           <div class="rp-pane ${activeTab === 'payments' ? 'active' : ''}" data-pane="payments">
@@ -306,12 +320,14 @@ export async function accountingManageStudentModal(studentId) {
             </form>
           ` : `
             <div class="rp-notice mint">
-              <span>This student is fully paid.</span>
+              <span>${totalUnits === 0
+                ? 'This student has no subject load yet, so there is nothing to assess or collect.'
+                : 'This student is fully paid.'}</span>
             </div>
           `}
           </div>
 
-          <div class="rp-pane ${activeTab === 'registration' ? 'active' : ''}" data-pane="registration">${registrationPane}</div>
+          ${registrationAllowed ? `<div class="rp-pane ${activeTab === 'registration' ? 'active' : ''}" data-pane="registration">${registrationPane}</div>` : ''}
         </div>
       </div>
     </div>

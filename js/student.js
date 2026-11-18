@@ -2,7 +2,7 @@ import { esc, toast } from './utils.js';
 import { registrationFormHtml } from './regform.js';
 import { supa, uploadFile } from './api.js';
 import { session } from './auth.js';
-import { getSelectablePrograms, programLabel, getAcademicTerm } from './catalog.js';
+import { getSelectablePrograms, programLabel, getAcademicTerm, yearLevelsFor, yearLabel } from './catalog.js';
 import { docsForType, docsComplete, docsUploaded, missingRequiredDocs } from './documents.js';
 import { applicationStatus } from './status.js';
 
@@ -95,18 +95,20 @@ export async function renderStudentDashboard() {
               ${confirmable ? `
                 <div>
                   <strong>All documents are complete.</strong>
-                  <div class="rp-hint">Confirm them so the Faculty can assign your subjects. Confirming is final — the Registrar can no longer return the application.</div>
+                  <div class="rp-hint">Confirm them so the Registrar can review and accept your application. Confirming is final — the Registrar can no longer return the application.</div>
                   <button type="button" class="btn btn-primary btn-sm" style="margin-top:10px;" data-action="confirmDocuments">Confirm All Documents</button>
                 </div>
               ` : `
-                <span>Upload your remaining documents in the Documents tab, then confirm them so the Faculty can assign your subjects.</span>
+                <span>Upload your remaining documents in the Documents tab, then confirm them so the Registrar can review your application.</span>
               `}
             </div>
           ` : `
             <div class="rp-notice mint" style="margin-bottom:0; width: 100%;">
               <span>${statusLabel === 'Enrolled'
                 ? 'Your documents are confirmed and your fees are paid. You are officially enrolled.'
-                : 'Your documents are confirmed. Pay your tuition once the Faculty has assigned your subjects to become officially enrolled.'}</span>
+                : statusLabel === 'Enrollee'
+                  ? 'The Registrar has accepted your application. Pay your tuition once the Faculty has assigned your subjects to become officially enrolled.'
+                  : 'Your documents are confirmed and now wait for the Registrar to accept your application.'}</span>
             </div>
           `}
         </div>
@@ -140,10 +142,10 @@ export async function renderApply() {
         <div class="success-check">✓</div>
         <h2>Application Submitted!</h2>
         <p>${confirmed
-          ? 'Your documents are confirmed. The Faculty can now assign your subjects.'
+          ? 'Your documents are confirmed. The Registrar will now review and accept your application.'
           : confirmable
-            ? 'All your documents are complete. Confirm them so the Faculty can assign your subjects.'
-            : 'Upload your remaining documents, then confirm them so the Faculty can assign your subjects.'}</p>
+            ? 'All your documents are complete. Confirm them so the Registrar can review your application.'
+            : 'Upload your remaining documents, then confirm them so the Registrar can review your application.'}</p>
         ${!confirmed && confirmable ? `<button type="button" class="btn btn-primary" style="margin-top:16px;" data-action="confirmDocuments">Confirm All Documents</button>` : ''}
       </div>
     `;
@@ -236,6 +238,8 @@ function renderStepProgram(app) {
   
   // Programs come from the catalog, so programs the Registrar adds appear here.
   const PROGRAMS = getSelectablePrograms();
+  // The year level list follows the number of years the program actually has.
+  const years = yearLevelsFor(p.preferred || (PROGRAMS[0] && PROGRAMS[0].id));
 
   return `
     <h2>Program Choice</h2>
@@ -243,19 +247,16 @@ function renderStepProgram(app) {
       <div class="field-row" style="max-width:600px">
         <div class="field">
           <label>Preferred Program *</label>
-          <select name="preferred" required>
+          <select name="preferred" required onchange="window.syncApplicationYears(this)">
             <option value="">Select a program</option>
             ${PROGRAMS.map(pr => `<option value="${pr.id}" ${String(p.preferred) === String(pr.id) ? 'selected' : ''}>${esc(pr.code)} — ${esc(pr.name)}</option>`).join('')}
           </select>
         </div>
         <div class="field">
           <label>Year Level *</label>
-          <select name="year_level" required>
+          <select name="year_level" id="programYearSelect" required>
             <option value="">Select year level</option>
-            <option value="1" ${String(p.year_level) === '1' ? 'selected' : ''}>1st Year</option>
-            <option value="2" ${String(p.year_level) === '2' ? 'selected' : ''}>2nd Year</option>
-            <option value="3" ${String(p.year_level) === '3' ? 'selected' : ''}>3rd Year</option>
-            <option value="4" ${String(p.year_level) === '4' ? 'selected' : ''}>4th Year</option>
+            ${years.map(y => `<option value="${y}" ${String(p.year_level) === String(y) ? 'selected' : ''}>${yearLabel(y)}</option>`).join('')}
           </select>
         </div>
       </div>
@@ -462,7 +463,9 @@ export async function renderStudentDocumentsTab(app) {
         <div class="rp-notice mint" style="margin-bottom:0;">
           <span>You confirmed these documents. ${applicationStatus(app) === 'Enrolled'
             ? 'Your fees are paid and you are officially enrolled.'
-            : 'Once the Faculty assigns your subjects and you pay your tuition, you are officially enrolled.'}</span>
+            : applicationStatus(app) === 'Enrollee'
+              ? 'The Registrar accepted your application. Once the Faculty assigns your subjects and you pay your tuition, you are officially enrolled.'
+              : 'They now wait for the Registrar to accept your application.'}</span>
         </div>
       ` : missing.length ? `
         <div class="rp-card-head"><h3>Confirm All Documents</h3></div>
@@ -476,7 +479,7 @@ export async function renderStudentDocumentsTab(app) {
         <div class="rp-card-head"><h3>Confirm All Documents</h3></div>
         <p class="rp-hint">
           Every required document is complete. Press the button below to confirm them.
-          Confirming is final: the application can no longer be returned, and the Faculty can start assigning your subjects.
+          Confirming is final: the application can no longer be returned. The Registrar then reviews it and accepts you as an Enrollee.
         </p>
         <button type="button" class="btn btn-primary" style="margin-top:14px;" data-action="confirmDocuments">Confirm All Documents</button>
       `}
@@ -608,6 +611,14 @@ export async function renderPaymentTab(app, subjects, courses, settings) {
               <div style="display:flex; gap:10px; flex-direction:column;">
                 <button class="btn btn-primary" onclick="window.payTuition('half', ${total}, ${paid})">Pay Downpayment (50%)</button>
                 <button class="btn btn-gold" onclick="window.payTuition('full', ${total}, ${paid})">Pay Full Balance</button>
+              </div>
+              <div class="custom-pay-row">
+                <div class="field">
+                  <label>Or pay a custom amount</label>
+                  <input class="rp-input" type="number" id="customPayAmount" min="1" step="0.01"
+                         placeholder="Up to ₱${balance.toLocaleString('en-PH', { minimumFractionDigits: 2 })}">
+                </div>
+                <button class="btn btn-outline" onclick="window.payCustomAmount(${total}, ${paid})">Pay Custom Amount</button>
               </div>
             </div>
           ` : `
@@ -758,3 +769,14 @@ export async function renderRegistrationTab(app, subjects, courses, settings) {
     fallbackName: session.name
   });
 }
+
+// The year level choices follow the program's own number of year levels.
+window.syncApplicationYears = (select) => {
+  const yearSelect = document.getElementById('programYearSelect');
+  if (!yearSelect) return;
+  const chosen = yearSelect.value;
+  yearSelect.innerHTML = '<option value="">Select year level</option>' +
+    yearLevelsFor(select.value)
+      .map(y => `<option value="${y}" ${String(chosen) === String(y) ? 'selected' : ''}>${yearLabel(y)}</option>`)
+      .join('');
+};
