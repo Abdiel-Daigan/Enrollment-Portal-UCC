@@ -261,12 +261,12 @@ export async function regManageStudentModal(userId, tab) {
           <strong>${esc(d.name)}</strong><br>
           ${d.required ? '<span class="rp-badge red" style="margin-top:4px;">Required</span>' : '<span class="rp-badge grey" style="margin-top:4px;">Follow-up</span>'}
         </td>
-        <td>
+        <td data-label="File">
           ${isUploaded
             ? `<button class="rp-btn rp-btn-ghost rp-btn-sm" onclick="window.viewDocument('${uploaded[d.id]}')">View File</button>`
             : `<span class="rp-badge gold">Not Uploaded</span>`}
         </td>
-        <td>
+        <td data-label="Registrar Status">
           <select class="rp-input" style="padding:4px; font-size:12px; width:120px;" data-change="regDocStatus" data-student="${userId}" data-doc="${d.id}">
             <option value="Missing" ${status === 'Missing' ? 'selected' : ''}>Missing</option>
             <option value="Complete" ${status === 'Complete' ? 'selected' : ''}>Complete</option>
@@ -278,7 +278,7 @@ export async function regManageStudentModal(userId, tab) {
 
   const documentsPane = `
     <div class="rp-table-wrap">
-      <table class="rp-table">
+      <table class="rp-table doc-table" style="min-width:0;">
         <thead><tr><th>Document Name</th><th>File</th><th>Registrar Status</th></tr></thead>
         <tbody>${docRows}</tbody>
       </table>
@@ -453,7 +453,7 @@ export async function regManageStudentModal(userId, tab) {
         <span class="rp-hint">${docs.filter(d => (docStatus[d.id] || 'Missing') === 'Complete').length}/${docs.length} complete</span>
       </div>
       <div class="rp-table-wrap">
-        <table class="rp-table">
+        <table class="rp-table" style="min-width:0;">
           <thead><tr><th>Document</th><th style="text-align:right">Status</th></tr></thead>
           <tbody>${docStatusRows}</tbody>
         </table>

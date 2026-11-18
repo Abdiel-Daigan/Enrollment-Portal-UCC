@@ -408,7 +408,7 @@ export async function renderStudentDocumentsTab(app) {
       <p class="rp-hint" style="margin-bottom: 20px;">Please complete the follow-up documents below. Required documents must be verified by the Registrar.</p>
       
       <div class="rp-table-wrap">
-        <table class="rp-table">
+        <table class="rp-table doc-table">
           <thead><tr><th>Document Name</th><th>Requirement</th><th>Status</th><th style="text-align:right">Action</th></tr></thead>
           <tbody>
             ${docs.map(d => {
@@ -417,13 +417,13 @@ export async function renderStudentDocumentsTab(app) {
               return `
                 <tr>
                   <td><strong>${esc(d.name)}</strong></td>
-                  <td>${d.required ? '<span class="rp-badge red">Required</span>' : '<span class="rp-badge grey">Follow-up</span>'}</td>
-                  <td>
+                  <td data-label="Requirement">${d.required ? '<span class="rp-badge red">Required</span>' : '<span class="rp-badge grey">Follow-up</span>'}</td>
+                  <td data-label="Status">
                     ${isUploaded 
                       ? (status === 'Complete' ? `<span class="rp-badge green">Verified</span>` : `<span class="rp-badge gold">Submitted</span>`)
                       : `<span class="rp-badge red">Missing</span>`}
                   </td>
-                  <td style="text-align:right">
+                  <td style="text-align:right" data-label="Action">
                     ${isUploaded ? `<button class="rp-btn rp-btn-ghost rp-btn-sm" onclick="window.viewDocument('${uploaded[d.id]}')">View File</button>` : ''}
                   </td>
                 </tr>
@@ -573,7 +573,7 @@ export async function renderPaymentTab(app, subjects, courses, settings) {
       <div class="rp-card">
         <div class="rp-card-head"><h3>Subject List</h3></div>
         <div class="rp-table-wrap">
-          <table class="rp-table">
+          <table class="rp-table" style="min-width:0;">
             <thead><tr><th>Course Code</th><th>Description</th><th style="text-align:center">Units</th></tr></thead>
             <tbody>${subjectsHtml}</tbody>
           </table>
@@ -754,6 +754,7 @@ export async function renderRegistrationTab(app, subjects, courses, settings) {
       </div>
 
       <!-- TABLE -->
+      <div class="receipt-scroll">
       <table style="width:100%; border-collapse:collapse; font-size:11px; margin-bottom:20px;">
         <thead>
           <tr style="border:1px solid #000; text-align:center; font-weight:bold;">
@@ -793,6 +794,7 @@ export async function renderRegistrationTab(app, subjects, courses, settings) {
           </tr>
         </tbody>
       </table>
+      </div>
 
       <!-- STAMP -->
       <div style="display:flex; justify-content:center; margin:30px 0;">
@@ -804,7 +806,7 @@ export async function renderRegistrationTab(app, subjects, courses, settings) {
       </div>
 
       <!-- SIGNATURES -->
-      <div style="display:flex; justify-content:space-between; font-size:11px; margin-top:40px;">
+      <div style="display:flex; flex-wrap:wrap; justify-content:space-between; gap:16px; font-size:11px; margin-top:40px;">
         <div style="text-align:center;">
           <p>Checked by:</p>
           <div style="border-bottom:1px solid #000; width:150px; margin:20px auto 5px;"></div>

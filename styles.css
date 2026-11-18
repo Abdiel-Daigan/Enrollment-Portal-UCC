@@ -489,7 +489,8 @@ a { color: var(--mint-600); text-decoration: none; }
   .auth-logo { height: 38px; }
   .auth-topbar-meta { display: none; }
   .navbar { padding: 12px 16px; height: auto; flex-wrap: wrap; }
-  .nav-links { order: 3; width: 100%; overflow-x: auto; justify-content: flex-start; margin-top: 10px; }
+  .nav-links { order: 3; flex: 1 1 100%; width: 100%; overflow-x: auto; justify-content: flex-start; margin-top: 8px; padding-bottom: 4px; scrollbar-width: none; }
+  .nav-links::-webkit-scrollbar { display: none; }
   .college-banner { grid-template-columns: 1fr; }
   .apply-layout { grid-template-columns: 1fr; }
   .apply-sidebar { position: static; display: flex; overflow-x: auto; padding: 10px; }
@@ -499,7 +500,8 @@ a { color: var(--mint-600); text-decoration: none; }
   .role-shell { grid-template-columns: minmax(0, 1fr); position: static; width: 100%; min-height: 100vh; }
   .role-sidebar { position: static; height: auto; padding: 14px; flex-direction: row; align-items: center; flex-wrap: wrap; gap: 10px 12px; overflow: visible; }
   .role-side-brand { margin-bottom: 0; }
-  .role-nav { flex: 1 1 100%; order: 3; flex-direction: row; overflow-x: auto; min-width: 0; padding-bottom: 4px; }
+  .role-nav { flex: 1 1 100%; order: 3; flex-direction: row; overflow-x: auto; min-width: 0; padding-bottom: 4px; scrollbar-width: none; }
+  .role-nav::-webkit-scrollbar { display: none; }
   .role-nav-group { display: none; }
   .role-nav-item { width: auto; white-space: nowrap; }
   .role-side-foot { margin-top: 0; margin-left: auto; order: 2; padding-top: 0; }
@@ -566,4 +568,115 @@ a { color: var(--mint-600); text-decoration: none; }
 
 @media (max-width: 900px) {
   .rp-mini-grid { grid-template-columns: 1fr; }
+}
+
+/* =========================================================
+   MOBILE COMPATIBILITY
+   ========================================================= */
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+img, svg, iframe, video, canvas { max-width: 100%; }
+.rp-table-wrap, .receipt-scroll, .timetable-scroll { -webkit-overflow-scrolling: touch; }
+
+/* Wide registration receipt scrolls sideways instead of stretching the page */
+.receipt-scroll { overflow-x: auto; }
+.receipt-scroll table { min-width: 520px; }
+
+@media (max-width: 900px) {
+  /* Grid and flex children must be allowed to shrink inside their track */
+  .rp-card, .rp-grid-2 > *, .rp-grid-3 > *, .rp-grid-4 > *,
+  .role-main, .role-content, .reg-subjects-layout > * { min-width: 0; }
+
+  /* Inline grid templates (three-up name fields, document choices) stack too */
+  .field-row, .doc-choices { grid-template-columns: minmax(0, 1fr) !important; }
+
+  .page-wrap { padding: 20px 16px 60px; }
+  .college-banner .banner-text { padding: 26px 22px; }
+  .college-banner .banner-text h2 { font-size: 26px; }
+  .college-banner .banner-text .banner-sub { font-size: 16px; }
+  .progress-card { padding: 22px 16px !important; }
+
+  /* Wizard progress strip */
+  .steps { gap: 4px; }
+  .steps::before { top: 22px; left: 6%; right: 6%; }
+  .step-circle { width: 44px; height: 44px; font-size: 16px; }
+  .step-label { font-size: 10.5px; max-width: none; }
+  .step-num { font-size: 9.5px; letter-spacing: .3px; }
+  .apply-main { padding: 22px 16px; }
+  .apply-footer { flex-wrap: wrap; }
+  .apply-footer .btn { flex: 1 1 140px; }
+  .upload-row { flex-direction: column; align-items: stretch; gap: 12px; padding: 14px 16px; }
+  .upload-row .ur-input { flex-wrap: wrap; }
+  .continue-bar { padding: 18px 16px; }
+
+  /* Toolbars: search fields and filters take the full row */
+  .rp-toolbar { gap: 8px; }
+  .rp-toolbar > div, .rp-toolbar > .grow { flex: 1 1 100%; width: auto !important; min-width: 0; }
+  .rp-toolbar form { width: 100%; min-width: 0; }
+  .rp-toolbar .rp-input { min-width: 0; flex: 1; }
+  .rp-toolbar > .rp-btn { flex: 1 1 100%; justify-content: center; }
+
+  /* Modals at phone width */
+  .rp-modal-backdrop { padding: 10px; }
+  .rp-modal { max-height: 92vh; max-height: 92dvh; }
+  .rp-modal-head, .rp-modal-foot { padding: 12px 14px; }
+  .rp-modal-body { padding: 16px 14px; }
+  .rp-modal-foot { flex-wrap: wrap; }
+  .rp-modal-foot .rp-btn { flex: 1 1 auto; justify-content: center; }
+
+  /* Narrow tables (2-3 columns) can wrap their headers and fit the screen */
+  .rp-table thead th { white-space: normal; }
+  .rp-table td, .rp-table th { overflow-wrap: anywhere; }
+
+  /* iOS zooms any focused field under 16px */
+  .field input, .field select, .field textarea, .rp-input, textarea { font-size: 16px; }
+
+  .prereq-item { gap: 8px; }
+  .prereq-row { flex-wrap: wrap; gap: 8px; }
+
+  .schedule-header-card { padding: 18px 16px; }
+  .schedule-header-card h2 { font-size: 20px; }
+  .schedule-info-item { flex: 1 1 45%; min-width: 0; }
+  .timetable { grid-template-columns: 46px repeat(6, minmax(0, 1fr)); }
+
+  .toast-root { left: 12px; right: 12px; bottom: 12px; }
+  .toast { max-width: none; }
+
+  .role-topbar { gap: 10px; }
+  .role-topbar > div:first-child { min-width: 0; }
+  .role-topbar h1 { font-size: 17px; }
+  .role-topbar .rt-sub { font-size: 11.5px; }
+}
+
+@media (max-width: 560px) {
+  .nav-session-name { display: none; }
+  .rp-grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .rp-stat > div:last-child { min-width: 0; }
+  .rp-stat .val { font-size: 21px; overflow-wrap: anywhere; }
+  .navbar { gap: 10px; padding: 10px 14px; }
+  .role-topbar .rt-who { display: none; }
+  .reg-doc-preview { height: 260px; }
+}
+
+/* Document checklists become one card per document on phones */
+@media (max-width: 700px) {
+  .rp-table-wrap:has(.doc-table) { border: none; background: transparent; overflow: visible; }
+  .rp-table.doc-table { min-width: 0; border: none; }
+  .rp-table.doc-table thead { display: none; }
+  .rp-table.doc-table, .rp-table.doc-table tbody,
+  .rp-table.doc-table tr, .rp-table.doc-table td { display: block; width: 100%; }
+  .rp-table.doc-table tr { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; margin-bottom: 10px; background: #fff; box-shadow: var(--shadow); }
+  .rp-table.doc-table tr:hover { background: #fff; }
+  .rp-table.doc-table td { border: none; padding: 4px 0; display: flex; align-items: center; justify-content: space-between; gap: 14px; text-align: left !important; }
+  .rp-table.doc-table td:first-child { display: block; padding: 0 0 8px; }
+  .rp-table.doc-table td:first-child::before { display: none; }
+  .rp-table.doc-table td::before { content: attr(data-label); font-size: 10.5px; font-weight: 800; letter-spacing: .7px; text-transform: uppercase; color: var(--muted); }
+  .rp-table.doc-table td:empty { display: none; }
+  .rp-table.doc-table .rp-input { width: auto; min-width: 120px; }
+  #regReturnForm { flex-wrap: wrap; }
+  #regReturnForm .rp-input, #regReturnForm .rp-btn { flex: 1 1 100%; }
+}
+
+@media (max-width: 380px) {
+  .rp-grid-4 { grid-template-columns: minmax(0, 1fr); }
+  .rp-stat .val { font-size: 22px; }
 }
