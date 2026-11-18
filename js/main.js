@@ -558,13 +558,12 @@ document.addEventListener('click', async (e) => {
   const action = btn.dataset.action;
 
   if (action === 'authTab') {
-    $('.auth-tab.active').classList.remove('active');
-    btn.classList.add('active');
-    if (btn.dataset.tab === 'login') {
-      $('#loginForm').classList.remove('hidden'); $('#registerForm').classList.add('hidden');
-    } else {
-      $('#loginForm').classList.add('hidden'); $('#registerForm').classList.remove('hidden');
-    }
+    const tab = btn.dataset.tab === 'login' ? 'login' : 'register';
+    document.querySelectorAll('.auth-tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === tab));
+    $('#loginForm').classList.toggle('hidden', tab !== 'login');
+    $('#registerForm').classList.toggle('hidden', tab !== 'register');
+    // The hero's "Enroll Now!" button opens registration from outside the card
+    if (!btn.classList.contains('auth-tab')) $('.auth-card')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     return;
   }
 
