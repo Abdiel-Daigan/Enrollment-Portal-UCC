@@ -1,6 +1,6 @@
 import { esc, toast, isHistorySubject } from './utils.js';
 import { supa } from './api.js';
-import { decodePrereqSet, hydratePrereqSets, encodePrereqName } from './prereqs.js';
+import { decodePrereqSet, hydratePrereqSets } from './prereqs.js';
 import { reportCard } from './report.js';
 import { DOC_TYPES, docsComplete } from './documents.js';
 import { applicationStatus, statusTone, isEnrolled } from './status.js';
@@ -908,7 +908,6 @@ export async function regEditPresetModal(presetId) {
   `;
 
   window.tempRegPresetSubjects = currentSubjects;
-  window.tempRegPresetId = isNew ? null : preset.id;
   window.tempRegDeletedPSIds = [];
 
   document.getElementById('regPresetModal')?.remove();

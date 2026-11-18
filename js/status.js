@@ -18,7 +18,6 @@ export function applicationStatus(app) {
 }
 
 export const isEnrolled = (app) => applicationStatus(app) === 'Enrolled';
-export const isEnrollee = (app) => applicationStatus(app) === 'Enrollee';
 
 export function statusTone(label) {
   if (label === 'Enrolled' || label === 'Enrollee') return 'green';

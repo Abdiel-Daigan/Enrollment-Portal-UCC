@@ -60,14 +60,6 @@ export function hydratePrereqSets(sets, courses) {
   }));
 }
 
-export async function loadPrereqData() {
-  const [sets, courses] = await Promise.all([
-    loadPrereqSets(),
-    supa('courses').catch(() => [])
-  ]);
-  return { sets: hydratePrereqSets(sets, courses), courses };
-}
-
 // courseId -> [{ setId, title, earlierIds }] for every chain that has a
 // subject in front of it.
 export function buildChainIndex(sets) {

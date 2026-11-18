@@ -141,11 +141,6 @@ export function programLabel(id, fallback = 'Unknown') {
   return p ? p.code : fallback;
 }
 
-export function programFullName(id, fallback = '') {
-  const p = programById(id);
-  return p ? p.name : fallback;
-}
-
 export function programOptionsHtml(selected, {
   all = false,
   allValue = 'all',

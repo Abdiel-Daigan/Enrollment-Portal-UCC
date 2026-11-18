@@ -10,7 +10,7 @@ function csvCell(value) {
   return '"' + String(value === null || value === undefined ? '' : value).replace(/"/g, '""') + '"';
 }
 
-export function registerReport(id, { title, columns, rows, filename }) {
+function registerReport(id, { title, columns, rows, filename }) {
   store()[id] = { title, columns, rows, filename: filename || 'ucc-report.csv' };
 }
 

@@ -54,8 +54,6 @@ a { color: var(--mint-600); text-decoration: none; }
 .nav-links { display: flex; gap: 4px; flex: 1; justify-content: center; }
 .nav-link { color: #d6e8de; font-size: 14.5px; font-weight: 500; padding: 9px 18px; border-radius: 8px; position: relative; transition: .2s; white-space: nowrap; }
 .nav-link:hover { color: #fff; background: rgba(255,255,255,.08); }
-.nav-user { width: 42px; height: 42px; border-radius: 50%; background: rgba(255,255,255,.14); border: 2px solid rgba(255,255,255,.25); display: grid; place-items: center; color: #fff; font-size: 18px; transition: .2s; }
-.nav-user:hover { background: rgba(255,255,255,.22); }
 .nav-session { display: flex; align-items: center; gap: 16px; flex-shrink: 0; }
 .nav-session-name { font-size: 14px; font-weight: 600; color: #fff; white-space: nowrap; }
 .nav-logout { color: #fff; border-color: rgba(255,255,255,.4); }
@@ -277,7 +275,6 @@ a { color: var(--mint-600); text-decoration: none; }
 
 /* Shared Role Primitives */
 .rp-grid-4 { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 14px; margin-bottom: 20px; }
-.rp-grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 14px; }
 .rp-grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 14px; }
 .rp-card { background: #fff; border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 18px; box-shadow: var(--shadow); }
 .rp-card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
@@ -513,7 +510,7 @@ a { color: var(--mint-600); text-decoration: none; }
   .role-main { height: auto; min-height: 0; overflow-y: visible; }
   .role-content { padding: 18px 14px 60px; }
   .role-topbar { padding: 14px 16px; }
-  .rp-grid-4, .rp-grid-3, .rp-grid-2 { grid-template-columns: 1fr; }
+  .rp-grid-4, .rp-grid-2 { grid-template-columns: 1fr; }
   .field-row { grid-template-columns: 1fr; }
 }
 
@@ -579,7 +576,7 @@ a { color: var(--mint-600); text-decoration: none; }
    ========================================================= */
 html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 img, svg, iframe, video, canvas { max-width: 100%; }
-.rp-table-wrap, .receipt-scroll, .timetable-scroll { -webkit-overflow-scrolling: touch; }
+.rp-table-wrap, .receipt-scroll { -webkit-overflow-scrolling: touch; }
 
 /* Wide registration receipt scrolls sideways instead of stretching the page */
 .receipt-scroll { overflow-x: auto; }
@@ -587,7 +584,7 @@ img, svg, iframe, video, canvas { max-width: 100%; }
 
 @media (max-width: 900px) {
   /* Grid and flex children must be allowed to shrink inside their track */
-  .rp-card, .rp-grid-2 > *, .rp-grid-3 > *, .rp-grid-4 > *,
+  .rp-card, .rp-grid-2 > *, .rp-grid-4 > *,
   .role-main, .role-content, .reg-subjects-layout > * { min-width: 0; }
 
   /* Inline grid templates (three-up name fields, document choices) stack too */
@@ -733,7 +730,7 @@ img, svg, iframe, video, canvas { max-width: 100%; }
   .rp-card { break-inside: avoid; }
 
   /* Undo the phone card layout and sideways scrolling */
-  .rp-table-wrap, .receipt-scroll, .timetable-scroll {
+  .rp-table-wrap, .receipt-scroll {
     overflow: visible !important; max-height: none !important; border: none !important;
   }
   .rp-table { display: table !important; width: 100% !important; min-width: 0 !important; border-collapse: collapse !important; }

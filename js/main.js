@@ -337,13 +337,10 @@ window.setRegistrarView = (view) => { window.currentView = view; renderAll(); };
 
 // --- GLOBAL HELPERS (FACULTY & REGISTRAR) ---
 window.tempStudentSubjects = [];
-window.tempPresetSubjects = [];
-window.tempDeletedPSIds = [];
 window.tempRegPresetSubjects = [];
 window.tempRegPresetId = null;
 window.tempRegDeletedPSIds = [];
 window.tempRegPrereqSubjects = [];
-window.tempRegPrereqId = null;
 
 window.tempAddSubject = (studentId) => {
   const sel = document.querySelector('#facultyAddSubjectForm select[name="course_id"]');

@@ -22,7 +22,7 @@ export function loadSession() {
 }
 
 // Save session
-export function setSession(s) {
+function setSession(s) {
   session = s;
   if (s) {
     localStorage.setItem(SESSION_KEY, JSON.stringify(s));

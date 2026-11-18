@@ -5,8 +5,6 @@ export const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => (
   { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
 ));
 
-export const nowISO = () => new Date().toISOString();
-
 // Opens an uploaded document in a new tab. Defined once here so every portal
 // uses the same behaviour (the inline onclick handlers call this global).
 export function viewDocument(url) {
