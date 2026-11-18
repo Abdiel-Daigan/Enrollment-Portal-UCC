@@ -1,6 +1,7 @@
 import { esc, toast, isHistorySubject } from './utils.js';
 import { supa } from './api.js';
 import { reportCard } from './report.js';
+import { registrationFormHtml } from './regform.js';
 
 export async function renderAccountingDashboard() {
   const [logs, apps, users, subjects, courses, settingsRes] = await Promise.all([
@@ -246,14 +247,32 @@ export async function accountingManageStudentModal(studentId) {
   const paid = Number(app.amount_paid || 0);
   const balance = total - paid;
 
+  const activeTab = window.accModalTab === 'registration' ? 'registration' : 'payments';
+
+  // The Accounting copy of the student's registration form.
+  const registrationPane = registrationFormHtml({
+    app,
+    subjects,
+    courses,
+    settings,
+    copyLabel: 'ACCOUNTING COPY',
+    fallbackName: u.name
+  });
+
   const modalHtml = `
     <div class="rp-modal-backdrop" id="accStudentModal">
-      <div class="rp-modal">
+      <div class="rp-modal wide">
         <div class="rp-modal-head">
           <h3>Process Payment — ${esc(u.name)}</h3>
           <button type="button" class="rp-btn rp-btn-ghost rp-btn-sm" onclick="document.getElementById('accStudentModal').remove()">✕</button>
         </div>
         <div class="rp-modal-body">
+          <div class="rp-tabs">
+            <button type="button" class="rp-tab ${activeTab === 'payments' ? 'active' : ''}" data-tab="payments" onclick="window.accStudentModalTab('payments')">Payments</button>
+            <button type="button" class="rp-tab ${activeTab === 'registration' ? 'active' : ''}" data-tab="registration" onclick="window.accStudentModalTab('registration')">Registration Form</button>
+          </div>
+
+          <div class="rp-pane ${activeTab === 'payments' ? 'active' : ''}" data-pane="payments">
           <div class="rp-grid-2" style="margin-bottom:20px;">
             <div class="rp-card" style="background:var(--mint-50);">
               <div class="rp-hint">Total Assessment</div>
@@ -290,6 +309,9 @@ export async function accountingManageStudentModal(studentId) {
               <span>This student is fully paid.</span>
             </div>
           `}
+          </div>
+
+          <div class="rp-pane ${activeTab === 'registration' ? 'active' : ''}" data-pane="registration">${registrationPane}</div>
         </div>
       </div>
     </div>
@@ -298,3 +320,13 @@ export async function accountingManageStudentModal(studentId) {
   document.getElementById('accStudentModal')?.remove();
   document.body.insertAdjacentHTML('beforeend', modalHtml);
 }
+
+window.accStudentModalTab = (tab) => {
+  window.accModalTab = tab;
+  document.querySelectorAll('#accStudentModal .rp-pane').forEach(p => {
+    p.classList.toggle('active', p.dataset.pane === tab);
+  });
+  document.querySelectorAll('#accStudentModal .rp-tab').forEach(b => {
+    b.classList.toggle('active', b.dataset.tab === tab);
+  });
+};

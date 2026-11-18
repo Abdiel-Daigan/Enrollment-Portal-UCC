@@ -13,6 +13,7 @@ import {
   renderRegistrarPrereqs,
   renderRegistrarPrograms,
   renderRegistrarUnitLimits,
+  renderRegistrarAcademicTerm,
   regManageStudentModal,
   regEditPresetModal,
   regEditCourseModal,
@@ -20,7 +21,7 @@ import {
   regProgramModal
 } from './registrar.js';
 import { decodePrereqSet, hydratePrereqSets, encodePrereqName, evaluatePrerequisites, missingLabel } from './prereqs.js';
-import { loadCatalog, saveProgram, deleteProgram, saveCoursePrograms, saveUnitLimit, deleteUnitLimit, findUnitLimit, SEMESTERS } from './catalog.js';
+import { loadCatalog, saveProgram, deleteProgram, saveCoursePrograms, saveUnitLimit, deleteUnitLimit, findUnitLimit, saveAcademicTerm, currentSemester, SEMESTERS } from './catalog.js';
 import { docsForType, docsComplete, docsUploaded } from './documents.js';
 import { renderTemplate, preloadTemplates, setActiveNav } from './templates.js';
 
@@ -189,6 +190,7 @@ const REGISTRAR_VIEWS = {
   students: { label: 'Student Management', sub: 'Applications and records' },
   programs: { label: 'Programs', sub: 'Degree programs offered' },
   unitlimits: { label: 'Unit Limits', sub: 'Maximum units per program, year and semester' },
+  academicterm: { label: 'Academic Term', sub: 'Current semester and school year' },
   presets: { label: 'Preset Subjects', sub: 'Curriculum presets' },
   prereqs: { label: 'Prerequisite Subjects', sub: 'Required sequences' },
   courses: { label: 'Manage Subjects', sub: 'Curriculum' }
@@ -324,6 +326,7 @@ async function renderRegistrarLayout() {
   else if (view === 'students') content.innerHTML = await renderRegistrarStudents();
   else if (view === 'programs') content.innerHTML = await renderRegistrarPrograms();
   else if (view === 'unitlimits') content.innerHTML = await renderRegistrarUnitLimits();
+  else if (view === 'academicterm') content.innerHTML = await renderRegistrarAcademicTerm();
   else if (view === 'presets') content.innerHTML = await renderRegistrarPresets();
   else if (view === 'prereqs') content.innerHTML = await renderRegistrarPrereqs();
   else if (view === 'courses') content.innerHTML = await renderRegistrarCourses();
@@ -595,7 +598,7 @@ document.addEventListener('click', async (e) => {
   if (action === 'facultyManageStudent') {
     window.facultySelectedStudent = Number(btn.dataset.id);
     window.tempStudentSubjects = [];
-    window.facultySemester = '1st Semester';
+    window.facultySemester = currentSemester();
     renderAll();
     return;
   }
@@ -608,6 +611,12 @@ document.addEventListener('click', async (e) => {
   if (action === 'facultyRemoveSubject') {
     const subjectId = Number(btn.dataset.id);
     try {
+      // Once the student has paid for the load, the assigned subjects are
+      // locked and only Accounting or the Registrar can change them.
+      const studentApps = await supa('applications', { match: { user_id: Number(btn.dataset.student) } }).catch(() => []);
+      if (Number((studentApps[0] || {}).amount_paid || 0) > 0) {
+        return toast('This student has already paid, so the subject can no longer be removed.', 'error');
+      }
       await supa('student_subjects', { method: 'DELETE', match: { id: subjectId } });
       toast('Subject removed.');
       renderAll();
@@ -877,6 +886,7 @@ document.addEventListener('change', async (e) => {
   }
   else if (key === 'regPresetFilterProg') { window.regPresetFilterProg = e.target.value; renderAll(); }
   else if (key === 'regPresetFilterYear') { window.regPresetFilterYear = e.target.value; renderAll(); }
+  else if (key === 'regPresetFilterSem') { window.regPresetFilterSem = e.target.value; renderAll(); }
   else if (key === 'regPrereqFilterProg') { window.regPrereqFilterProg = e.target.value; renderAll(); }
   else if (key === 'regCourseFilterProg') { window.regCourseFilterProg = e.target.value; renderAll(); }
   else if (key === 'regLimitFilterProg') { window.regLimitFilterProg = e.target.value; renderAll(); }
@@ -1035,6 +1045,20 @@ document.addEventListener('submit', async (e) => {
     } catch (err) {
       console.error(err);
       toast(err.message || 'Failed to save the unit limit.', 'error');
+    }
+    return;
+  }
+
+  if (e.target.id === 'regAcademicTermForm') {
+    const fd = new FormData(e.target);
+    try {
+      await saveAcademicTerm({ semester: fd.get('semester'), schoolYear: fd.get('school_year') });
+      await loadCatalog();
+      toast('Current academic term updated.');
+      renderAll();
+    } catch (err) {
+      console.error(err);
+      toast(err.message || 'Failed to save the current term.', 'error');
     }
     return;
   }
@@ -1231,12 +1255,13 @@ window.regFilterYear = '';
 window.regFilterStatus = '';
 window.regPresetFilterProg = 'all';
 window.regPresetFilterYear = 'all';
+window.regPresetFilterSem = 'all';
 window.regPrereqFilterProg = 'all';
 window.regCourseFilterProg = 'all';
 window.regLimitFilterProg = 'all';
 window.regLimitFilterYear = 'all';
 window.regLimitFilterSem = 'all';
-window.facultySemester = '1st Semester';
+window.facultySemester = currentSemester();
 window.facultySelectedStudent = null;
 window.facultyPrereqErrors = [];
 window.accSearch = '';

@@ -1,9 +1,10 @@
-import { esc, toast } from './utils.js';
+import { esc, toast, isHistorySubject } from './utils.js';
 import { supa } from './api.js';
 import { decodePrereqSet, hydratePrereqSets, encodePrereqName } from './prereqs.js';
 import { reportCard } from './report.js';
 import { DOC_TYPES, docsComplete } from './documents.js';
 import { applicationStatus, statusTone, isEnrolled } from './status.js';
+import { registrationFormHtml } from './regform.js';
 import {
   isMetaRow,
   getPrograms,
@@ -16,6 +17,8 @@ import {
   courseProgramLabels,
   getUnitLimits,
   findUnitLimit,
+  getAcademicTerm,
+  currentSemester,
   YEAR_LEVELS,
   SEMESTERS
 } from './catalog.js';
@@ -224,6 +227,8 @@ export async function regManageStudentModal(userId, tab) {
   const courses = await supa('courses').catch(() => []);
   const subjects = await supa('student_subjects', { match: { user_id: userId } }).catch(() => []);
   const logs = await supa('payment_logs', { match: { user_id: userId } }).catch(() => []);
+  const settingsRes = await supa('system_settings', { match: { id: 1 } }).catch(() => []);
+  const settings = settingsRes[0] || { tuition_per_unit: 444, misc_fee: 5452, reg_fee: 1000 };
 
   let pr = app.program || {};
   if (typeof pr === 'string') { try { pr = JSON.parse(pr); } catch (e) { pr = {}; } }
@@ -493,6 +498,17 @@ export async function regManageStudentModal(userId, tab) {
     </div>
   `;
 
+  // ---------- Registration form pane ----------
+  // The same document the student prints, labelled as the Registrar's copy.
+  const registrationPane = registrationFormHtml({
+    app,
+    subjects: subjects.filter(s => !isHistorySubject(s)),
+    courses,
+    settings,
+    copyLabel: 'REGISTRAR COPY',
+    fallbackName: u.name
+  });
+
   const modalHtml = `
     <div class="rp-modal-backdrop" id="regStudentModal">
       <div class="rp-modal wide">
@@ -508,11 +524,13 @@ export async function regManageStudentModal(userId, tab) {
             <button type="button" class="rp-tab ${activeTab === 'documents' ? 'active' : ''}" data-tab="documents" onclick="window.regStudentModalTab('documents')">Documents</button>
             <button type="button" class="rp-tab ${activeTab === 'subjects' ? 'active' : ''}" data-tab="subjects" onclick="window.regStudentModalTab('subjects')">Subjects Taken</button>
             <button type="button" class="rp-tab ${activeTab === 'record' ? 'active' : ''}" data-tab="record" onclick="window.regStudentModalTab('record')">Student Record</button>
+            <button type="button" class="rp-tab ${activeTab === 'registration' ? 'active' : ''}" data-tab="registration" onclick="window.regStudentModalTab('registration')">Registration Form</button>
           </div>
 
           <div class="rp-pane ${activeTab === 'documents' ? 'active' : ''}" data-pane="documents">${documentsPane}</div>
           <div class="rp-pane ${activeTab === 'subjects' ? 'active' : ''}" data-pane="subjects">${subjectsPane}</div>
           <div class="rp-pane ${activeTab === 'record' ? 'active' : ''}" data-pane="record">${recordPane}</div>
+          <div class="rp-pane ${activeTab === 'registration' ? 'active' : ''}" data-pane="registration">${registrationPane}</div>
         </div>
         <div class="rp-modal-foot">
           <button type="button" class="rp-btn rp-btn-primary" onclick="document.getElementById('regStudentModal').remove()">Done</button>
@@ -653,11 +671,13 @@ export async function renderRegistrarPresets() {
   const presetSubs = await supa('preset_subjects').catch(() => []);
   const filterProg = window.regPresetFilterProg || 'all';
   const filterYear = window.regPresetFilterYear || 'all';
+  const filterSem = window.regPresetFilterSem || 'all';
 
   const filteredPresets = presets.filter(p => {
     const progMatch = filterProg === 'all' || String(p.program_id) === String(filterProg);
     const yearMatch = filterYear === 'all' || String(p.year_level) === String(filterYear);
-    return progMatch && yearMatch;
+    const semMatch = filterSem === 'all' || String(p.semester) === String(filterSem);
+    return progMatch && yearMatch && semMatch;
   });
 
   return `
@@ -669,6 +689,10 @@ export async function renderRegistrarPresets() {
         <select class="rp-input" data-change="regPresetFilterYear" style="width:140px;">
           <option value="all">All Years</option>
           ${YEAR_LEVELS.map(y => `<option value="${y}" ${String(filterYear) === String(y) ? 'selected' : ''}>Year ${y}</option>`).join('')}
+        </select>
+        <select class="rp-input" data-change="regPresetFilterSem" style="width:170px;">
+          <option value="all">All Semesters</option>
+          ${SEMESTERS.map(s => `<option value="${esc(s)}" ${filterSem === s ? 'selected' : ''}>${esc(s)}</option>`).join('')}
         </select>
       </div>
       <button class="rp-btn rp-btn-primary" data-action="regCreatePreset">＋ Create New Preset</button>
@@ -788,7 +812,7 @@ export async function renderRegistrarCourses() {
 // --- MODALS & HELPERS ---
 export async function regEditPresetModal(presetId) {
   const isNew = !presetId;
-  let preset = { name: '', program_id: '1', year_level: '1', semester: '1st Semester' };
+  let preset = { name: '', program_id: '1', year_level: '1', semester: currentSemester() };
   let currentSubjects = [];
 
   if (!isNew) {
@@ -1417,6 +1441,86 @@ export async function renderRegistrarUnitLimits() {
           `).join('') : '<tr><td colspan="5" class="rp-empty">No unit limits set for this filter.</td></tr>'}
         </tbody>
       </table>
+    </div>
+  `;
+}
+
+
+/* =========================================================================
+   ACADEMIC TERM
+   -------------------------------------------------------------------------
+   One current semester and school year for the whole site. Presets carry a
+   semester, so the term set here decides which presets the Faculty may offer.
+   ========================================================================= */
+
+export async function renderRegistrarAcademicTerm() {
+  const term = getAcademicTerm();
+  const presets = (await supa('presets').catch(() => [])).filter(p => !isMetaRow(p));
+  const termPresets = presets.filter(p => String(p.semester) === String(term.semester));
+  const otherPresets = presets.length - termPresets.length;
+
+  return `
+    <div class="rp-grid-2">
+      <div class="rp-card" style="background:var(--mint-50);">
+        <div class="rp-card-head"><h3>Current Academic Term</h3></div>
+        <div style="display:flex; gap:26px; flex-wrap:wrap; margin:16px 0;">
+          <div>
+            <div class="rp-hint">Semester</div>
+            <div style="font-size:22px; font-weight:800; color:var(--mint-800);">${esc(term.semester)}</div>
+          </div>
+          <div>
+            <div class="rp-hint">School Year</div>
+            <div style="font-size:22px; font-weight:800; color:var(--mint-800);">${esc(term.schoolYear)}</div>
+          </div>
+        </div>
+        <p class="rp-hint">Students see this term on their registration form, and the Faculty can only assign presets that belong to it.</p>
+      </div>
+
+      <div class="rp-card">
+        <div class="rp-card-head"><h3>Set the Current Term</h3></div>
+        <form id="regAcademicTermForm" style="display:flex; flex-direction:column; gap:12px;">
+          <div class="field">
+            <label>Semester</label>
+            <select class="rp-input" name="semester" required>
+              ${SEMESTERS.map(s => `<option value="${esc(s)}" ${term.semester === s ? 'selected' : ''}>${esc(s)}</option>`).join('')}
+            </select>
+          </div>
+          <div class="field">
+            <label>School Year</label>
+            <input class="rp-input" name="school_year" value="${esc(term.schoolYear)}" placeholder="e.g. 2026-2027" required>
+          </div>
+          <button type="submit" class="rp-btn rp-btn-primary" style="margin-top:6px;">Save Current Term</button>
+        </form>
+        <p class="rp-hint" style="margin-top:12px;">Changing the semester immediately changes which presets the Faculty can load for students.</p>
+      </div>
+    </div>
+
+    <div class="rp-card" style="margin-top:16px;">
+      <div class="rp-card-head">
+        <h3>${esc(term.semester)} Presets</h3>
+        <span class="rp-badge green">${termPresets.length} preset(s)</span>
+      </div>
+      ${termPresets.length ? `
+        <div class="rp-table-wrap">
+          <table class="rp-table" style="min-width:0;">
+            <thead><tr><th>Preset Name</th><th>Program</th><th>Year</th></tr></thead>
+            <tbody>
+              ${termPresets.map(p => `
+                <tr>
+                  <td><strong>${esc(p.name)}</strong></td>
+                  <td>${esc(programLabel(p.program_id))}</td>
+                  <td>Year ${esc(p.year_level)}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+        ${otherPresets ? `<p class="rp-hint" style="margin-top:10px;">${otherPresets} preset(s) belong to another semester and are not offered while this term is active.</p>` : ''}
+      ` : `
+        <div class="rp-notice info">
+          <span>No presets are registered for ${esc(term.semester)} yet. Create them in <strong>Preset Subjects</strong>.</span>
+        </div>
+      `}
     </div>
   `;
 }

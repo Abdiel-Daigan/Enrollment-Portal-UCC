@@ -1,7 +1,8 @@
 import { esc, toast } from './utils.js';
+import { registrationFormHtml } from './regform.js';
 import { supa, uploadFile } from './api.js';
 import { session } from './auth.js';
-import { getSelectablePrograms, programLabel } from './catalog.js';
+import { getSelectablePrograms, programLabel, getAcademicTerm } from './catalog.js';
 import { docsForType, docsComplete, docsUploaded, missingRequiredDocs } from './documents.js';
 import { applicationStatus } from './status.js';
 
@@ -732,7 +733,7 @@ export async function renderScheduleTab(app, subjects, courses) {
         </div>
         <div class="schedule-info-item">
           <span>Semester</span>
-          <strong>${esc(pr.semester || '1st Semester')}</strong>
+          <strong>${esc(getAcademicTerm().semester)}</strong>
         </div>
       </div>
     </div>
@@ -745,127 +746,15 @@ export async function renderScheduleTab(app, subjects, courses) {
   `;
 }
 
+// The registration form lives in regform.js because the Registrar, Accounting
+// and Admin portals print the same document as their own copy.
 export async function renderRegistrationTab(app, subjects, courses, settings) {
-  let totalUnits = 0;
-  let subjectsHtml = '';
-
-  subjects.forEach(s => {
-    const c = courses.find(x => String(x.id) === String(s.course_id));
-    if (c) {
-      totalUnits += Number(c.units);
-      subjectsHtml += `
-        <tr>
-          <td style="border:1px solid #000; padding:4px;">${esc(c.code)}</td>
-          <td style="border:1px solid #000; padding:4px;">${esc(c.title)}</td>
-          <td style="border:1px solid #000; padding:4px; text-align:center;">${c.units}</td>
-        </tr>
-      `;
-    }
+  return registrationFormHtml({
+    app,
+    subjects,
+    courses,
+    settings,
+    copyLabel: "STUDENT'S COPY",
+    fallbackName: session.name
   });
-
-  const tuition = totalUnits * settings.tuition_per_unit;
-  const misc = settings.misc_fee;
-  const reg = settings.reg_fee;
-  const total = tuition + misc + reg;
-  const paid = Number(app.amount_paid || 0);
-
-  let pr = app.program || {};
-  if (typeof pr === 'string') { try { pr = JSON.parse(pr); } catch(e){} }
-  const progName = programLabel(pr.preferred);
-  const fullName = app.personal ? `${app.personal.first_name} ${app.personal.middle_name || ''} ${app.personal.last_name}`.trim() : session.name;
-
-  return `
-    <div class="progress-card" style="background:#fff; color:#000; font-family: 'Times New Roman', Times, serif; max-width: 800px; margin: 0 auto; padding: 40px;">
-      
-      <!-- HEADER -->
-      <div style="text-align:center; margin-bottom:20px;">
-        <h2 style="font-size:16px; font-weight:bold; margin-bottom:5px;">UNIDA CHRISTIAN COLLEGES</h2>
-        <p style="font-size:12px;">Unida Street Anabu I-F, Imus City, Cavite</p>
-        <h3 style="font-size:14px; font-weight:bold; margin-top:10px;">COLLEGE DEPARTMENT</h3>
-        <p style="font-size:10px; text-align:right;">STUDENT'S COPY</p>
-      </div>
-
-      <!-- DETAILS -->
-      <div style="display:flex; justify-content:space-between; font-size:12px; margin-bottom:10px;">
-        <div>
-          <p><strong>Schedule of Payment</strong></p>
-          <p style="margin-top:10px;">NAME: <span style="border-bottom:1px solid #000; display:inline-block; width:200px;">${esc(fullName).toUpperCase()}</span></p>
-          <p style="margin-top:5px;">COURSE AND YEAR: <span style="border-bottom:1px solid #000; display:inline-block; width:150px;">${progName} - YEAR ${esc(pr.year_level || '?')}</span></p>
-        </div>
-        <div style="text-align:right;">
-          <p>AY: <strong>2025-2026</strong></p>
-          <p>SEMESTER: <strong>${esc(pr.semester || '1st Semester').toUpperCase()}</strong></p>
-        </div>
-      </div>
-
-      <!-- TABLE -->
-      <div class="receipt-scroll">
-      <table style="width:100%; border-collapse:collapse; font-size:11px; margin-bottom:20px;">
-        <thead>
-          <tr style="border:1px solid #000; text-align:center; font-weight:bold;">
-            <th style="border:1px solid #000; padding:4px;" colspan="2">SUBJECTS</th>
-            <th style="border:1px solid #000; padding:4px;">No. of Units</th>
-            <th style="border:1px solid #000; padding:4px;">Amount per Unit</th>
-            <th style="border:1px solid #000; padding:4px;">TOTAL TUITION FEE</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${subjectsHtml}
-          <tr>
-            <td style="border:1px solid #000; padding:4px; font-weight:bold;" colspan="2">TOTAL TUITION</td>
-            <td style="border:1px solid #000; padding:4px; text-align:center; font-weight:bold;">${totalUnits}</td>
-            <td style="border:1px solid #000; padding:4px; text-align:center;">${settings.tuition_per_unit}</td>
-            <td style="border:1px solid #000; padding:4px; text-align:right; font-weight:bold;">${tuition.toLocaleString('en-PH', {minimumFractionDigits:2})}</td>
-          </tr>
-          <tr>
-            <td style="border:1px solid #000; padding:4px;" colspan="4">REGISTRATION</td>
-            <td style="border:1px solid #000; padding:4px; text-align:right;">${reg.toLocaleString('en-PH', {minimumFractionDigits:2})}</td>
-          </tr>
-          <tr>
-            <td style="border:1px solid #000; padding:4px;" colspan="4">MISCELLANEOUS FEES</td>
-            <td style="border:1px solid #000; padding:4px; text-align:right;">${misc.toLocaleString('en-PH', {minimumFractionDigits:2})}</td>
-          </tr>
-          <tr>
-            <td style="border:1px solid #000; padding:4px; font-weight:bold;" colspan="4">TOTAL</td>
-            <td style="border:1px solid #000; padding:4px; text-align:right; font-weight:bold;">${total.toLocaleString('en-PH', {minimumFractionDigits:2})}</td>
-          </tr>
-          <tr>
-            <td style="border:1px solid #000; padding:4px; font-weight:bold; color:green;" colspan="4">AMOUNT PAID</td>
-            <td style="border:1px solid #000; padding:4px; text-align:right; font-weight:bold; color:green;">${paid.toLocaleString('en-PH', {minimumFractionDigits:2})}</td>
-          </tr>
-          <tr>
-            <td style="border:1px solid #000; padding:4px; font-weight:bold; color:red;" colspan="4">REMAINING BALANCE</td>
-            <td style="border:1px solid #000; padding:4px; text-align:right; font-weight:bold; color:red;">${(total - paid).toLocaleString('en-PH', {minimumFractionDigits:2})}</td>
-          </tr>
-        </tbody>
-      </table>
-      </div>
-
-      <!-- STAMP -->
-      <div style="display:flex; justify-content:center; margin:30px 0;">
-        <div style="border: 3px solid #2e7d32; color: #2e7d32; padding: 10px 30px; border-radius: 8px; text-align:center; transform: rotate(-5deg);">
-          <p style="font-size:12px; font-weight:bold; margin-bottom:5px;">UCC ADMISSIONS OFFICE</p>
-          <p style="font-size:28px; font-weight:900; letter-spacing:2px;">ENROLLED</p>
-          <p style="font-size:12px;">Date: ${new Date().toLocaleDateString()}</p>
-        </div>
-      </div>
-
-      <!-- SIGNATURES -->
-      <div style="display:flex; flex-wrap:wrap; justify-content:space-between; gap:16px; font-size:11px; margin-top:40px;">
-        <div style="text-align:center;">
-          <p>Checked by:</p>
-          <div style="border-bottom:1px solid #000; width:150px; margin:20px auto 5px;"></div>
-          <p>Ms. Analee I. Ramos</p>
-          <p style="font-weight:bold;">Registrar Head</p>
-        </div>
-        <div style="text-align:center;">
-          <p>Approved by:</p>
-          <div style="border-bottom:1px solid #000; width:150px; margin:20px auto 5px;"></div>
-          <p>Dr. Ruthmita Rozul</p>
-          <p style="font-weight:bold;">College Director</p>
-        </div>
-      </div>
-
-    </div>
-  `;
 }

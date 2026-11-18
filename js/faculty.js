@@ -2,7 +2,7 @@ import { esc, toast, isHistorySubject } from './utils.js';
 import { supa } from './api.js';
 import { decodePrereqSet, hydratePrereqSets, evaluatePrerequisites, missingLabel } from './prereqs.js';
 import { reportCard } from './report.js';
-import { isMetaRow, programLabel, programOptionsHtml, programCheckboxes, courseMatchesProgram, findUnitLimit, SEMESTERS } from './catalog.js';
+import { isMetaRow, programLabel, programOptionsHtml, programCheckboxes, courseMatchesProgram, findUnitLimit, getAcademicTerm, SEMESTERS } from './catalog.js';
 import { isVisibleToFaculty } from './documents.js';
 import { applicationStatus } from './status.js';
 
@@ -128,7 +128,14 @@ export async function renderFacultyProgress() {
         !tempIds.includes(String(c.id))
       );
 
-      const matchingPresets = presets.filter(p => !isMetaRow(p) && String(p.program_id) === String(progId) && String(p.year_level) === String(pr.year_level));
+      // The Registrar's current term decides which presets may be offered.
+      const term = getAcademicTerm();
+      const matchingPresets = presets.filter(p =>
+        !isMetaRow(p)
+        && String(p.program_id) === String(progId)
+        && String(p.year_level) === String(pr.year_level)
+        && String(p.semester) === String(term.semester)
+      );
 
       // Prerequisite check for the pending list: a subject may only be added when
       // everything before it in its sequence is passed already or also pending.
@@ -149,7 +156,9 @@ export async function renderFacultyProgress() {
       });
 
       // Unit limit configured by the Registrar for this program/year/semester.
-      const semester = SEMESTERS.includes(window.facultySemester) ? window.facultySemester : '1st Semester';
+      // The faculty selector starts on the term the Registrar set.
+      const semester = SEMESTERS.includes(window.facultySemester) ? window.facultySemester : term.semester;
+      const isPaid = Number(app.amount_paid || 0) > 0;
       const unitLimit = findUnitLimit(progId, pr.year_level, semester);
       const takenUnits = taken.reduce((sum, t) => {
         const c = courses.find(x => String(x.id) === String(t.course_id));
@@ -236,6 +245,10 @@ export async function renderFacultyProgress() {
 
           <div class="rp-card">
             <div class="rp-card-head"><h3>Add Subjects</h3></div>
+
+            <div class="rp-notice info" style="margin-bottom:14px;">
+              <span>Current term: <strong>${esc(term.semester)}</strong> · S.Y. ${esc(term.schoolYear)}. Only ${esc(term.semester)} presets are offered here.</span>
+            </div>
             
             ${matchingPresets.length ? `
               <div style="margin-bottom: 20px; background:var(--mint-100); padding: 14px; border-radius: 10px;">
@@ -271,6 +284,7 @@ export async function renderFacultyProgress() {
             <h3>Subjects to be added</h3>
             <span class="rp-badge green">${taken.length} subject(s)</span>
           </div>
+          ${isPaid ? `<p class="rp-hint" style="margin-bottom:8px;">This student has already paid, so the assigned subjects can no longer be removed here.</p>` : ''}
           ${taken.length ? taken.map(t => {
             const c = courses.find(x => String(x.id) === String(t.course_id));
             return `
@@ -280,8 +294,10 @@ export async function renderFacultyProgress() {
                   <div class="rp-hint">${c ? c.units : 0} units · ${c ? c.schedule_day + ' ' + c.schedule_time : ''}</div>
                 </div>
                 <div style="display:flex; gap: 8px; align-items: center;">
-                  <span class="rp-badge green">Pending Payment</span>
-                  <button class="rp-btn rp-btn-danger rp-btn-sm" data-action="facultyRemoveSubject" data-id="${t.id}" data-student="${student.id}">✕</button>
+                  <span class="rp-badge ${isPaid ? 'green' : 'gold'}">${isPaid ? 'Paid' : 'Pending Payment'}</span>
+                  ${isPaid
+                    ? '<span class="rp-hint">Locked</span>'
+                    : `<button class="rp-btn rp-btn-danger rp-btn-sm" data-action="facultyRemoveSubject" data-id="${t.id}" data-student="${student.id}">✕</button>`}
                 </div>
               </div>
             `;

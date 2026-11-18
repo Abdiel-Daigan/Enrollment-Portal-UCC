@@ -15,6 +15,7 @@ import { esc } from './utils.js';
 const PROGRAM_PREFIX = 'PROGRAM::';
 const UNIT_LIMIT_PREFIX = 'UNITLIMIT::';
 const COURSE_PROGRAM_PREFIX = 'COURSEPROG::';
+const ACADEMIC_TERM_PREFIX = 'ACADEMIC_TERM::';
 
 export const YEAR_LEVELS = [1, 2, 3, 4];
 export const SEMESTERS = ['1st Semester', '2nd Semester', 'Summer'];
@@ -31,6 +32,15 @@ let unitLimits = [];
 let courseProgramMap = {};
 let courseProgramRowId = null;
 
+// The Registrar sets one current academic term and the whole site reads it
+// from here, so presets, the faculty and the printed forms always agree.
+const schoolYearFor = (date) => {
+  const year = date.getMonth() >= 5 ? date.getFullYear() : date.getFullYear() - 1;
+  return `${year}-${year + 1}`;
+};
+
+let academicTerm = { semester: '1st Semester', schoolYear: schoolYearFor(new Date()), rowId: null };
+
 const decodeMeta = (row, prefix) => {
   try {
     const data = JSON.parse(String(row.name || '').slice(prefix.length));
@@ -45,7 +55,8 @@ export function isMetaRow(row) {
   const name = String((row && row.name) || '');
   return name.startsWith(PROGRAM_PREFIX)
     || name.startsWith(UNIT_LIMIT_PREFIX)
-    || name.startsWith(COURSE_PROGRAM_PREFIX);
+    || name.startsWith(COURSE_PROGRAM_PREFIX)
+    || name.startsWith(ACADEMIC_TERM_PREFIX);
 }
 
 export async function loadCatalog() {
@@ -61,6 +72,7 @@ export async function loadCatalog() {
   const limits = [];
   let map = {};
   let mapRowId = null;
+  let term = null;
 
   rows.forEach((row) => {
     const name = String(row.name || '');
@@ -90,6 +102,13 @@ export async function loadCatalog() {
       Object.entries(source || {}).forEach(([courseId, ids]) => {
         if (Array.isArray(ids) && ids.length) map[courseId] = ids.map(Number);
       });
+    } else if (name.startsWith(ACADEMIC_TERM_PREFIX)) {
+      const data = decodeMeta(row, ACADEMIC_TERM_PREFIX);
+      if (!data) return;
+      const semester = String(row.semester || data.semester || '1st Semester');
+      const schoolYear = String(data.schoolYear || '');
+      if (!SEMESTERS.includes(semester) || !schoolYear) return;
+      term = { semester, schoolYear, rowId: row.id };
     }
   });
 
@@ -97,6 +116,7 @@ export async function loadCatalog() {
   unitLimits = limits;
   courseProgramMap = map;
   courseProgramRowId = mapRowId;
+  academicTerm = term || { semester: '1st Semester', schoolYear: schoolYearFor(new Date()), rowId: null };
 
   return { programs, unitLimits, courseProgramMap };
 }
@@ -301,4 +321,36 @@ export async function saveUnitLimit({ programId, year, semester, maxUnits }) {
 
 export async function deleteUnitLimit(rowId) {
   await supa('presets', { method: 'DELETE', match: { id: Number(rowId) } });
+}
+
+// --- ACADEMIC TERM --------------------------------------------------------
+
+export function getAcademicTerm() {
+  return { ...academicTerm };
+}
+
+export const currentSemester = () => academicTerm.semester;
+
+export async function saveAcademicTerm({ semester, schoolYear }) {
+  const sem = String(semester || '').trim();
+  const sy = String(schoolYear || '').replace(/\s+/g, '');
+
+  if (!SEMESTERS.includes(sem)) throw new Error('Choose a valid semester.');
+  if (!/^[0-9]{4}-[0-9]{4}$/.test(sy)) throw new Error('School year must look like 2026-2027.');
+
+  const payload = {
+    name: ACADEMIC_TERM_PREFIX + JSON.stringify({ semester: sem, schoolYear: sy }),
+    program_id: 0,
+    year_level: 1,
+    semester: sem
+  };
+
+  if (academicTerm.rowId) {
+    await supa('presets', { method: 'PATCH', match: { id: academicTerm.rowId }, body: payload });
+  } else {
+    const res = await supa('presets', { method: 'POST', body: payload });
+    academicTerm.rowId = Array.isArray(res) && res[0] ? res[0].id : null;
+  }
+
+  academicTerm = { ...academicTerm, semester: sem, schoolYear: sy };
 }
