@@ -1,6 +1,7 @@
 import { esc, toast } from './utils.js';
 import { supa, uploadFile } from './api.js';
 import { session } from './auth.js';
+import { getSelectablePrograms, programLabel } from './catalog.js';
 
 // Helper for the timetable
 function parseTimeToMin(t) {
@@ -197,11 +198,8 @@ function renderStepProgram(app) {
   let p = app.program || {};
   if (typeof p === 'string') { try { p = JSON.parse(p); } catch (e) {} }
   
-  const PROGRAMS = [
-    { id: '1', code: 'BEEd', name: 'Bachelor of Elementary Education' },
-    { id: '2', code: 'BSEd', name: 'Bachelor of Secondary Education' },
-    { id: '8', code: 'BSCS', name: 'Bachelor of Science in Computer Science' }
-  ];
+  // Programs come from the catalog, so programs the Registrar adds appear here.
+  const PROGRAMS = getSelectablePrograms();
 
   return `
     <h2>Program Choice</h2>
@@ -595,8 +593,7 @@ export async function renderScheduleTab(app, subjects, courses) {
   let pr = app.program || {};
   if (typeof pr === 'string') { try { pr = JSON.parse(pr); } catch(e){} }
   
-  const PROG_NAMES = { '1': 'BEEd', '2': 'BSEd', '8': 'BSCS' };
-  const progName = PROG_NAMES[pr.preferred] || 'Unknown';
+  const progName = programLabel(pr.preferred);
 
   const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
   
@@ -725,8 +722,7 @@ export async function renderRegistrationTab(app, subjects, courses, settings) {
 
   let pr = app.program || {};
   if (typeof pr === 'string') { try { pr = JSON.parse(pr); } catch(e){} }
-  const PROG_NAMES = { '1': 'BEEd', '2': 'BSEd', '8': 'BSCS' };
-  const progName = PROG_NAMES[pr.preferred] || 'Unknown';
+  const progName = programLabel(pr.preferred);
   const fullName = app.personal ? `${app.personal.first_name} ${app.personal.middle_name || ''} ${app.personal.last_name}`.trim() : session.name;
 
   return `

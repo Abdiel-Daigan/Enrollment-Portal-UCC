@@ -11,18 +11,25 @@ import {
   renderRegistrarCourses,
   renderRegistrarStudents,
   renderRegistrarPrereqs,
+  renderRegistrarPrograms,
+  renderRegistrarUnitLimits,
   regManageStudentModal,
   regEditPresetModal,
   regEditCourseModal,
-  regEditPrereqModal
+  regEditPrereqModal,
+  regProgramModal
 } from './registrar.js';
 import { decodePrereqSet, hydratePrereqSets, encodePrereqName, evaluatePrerequisites, missingLabel } from './prereqs.js';
+import { loadCatalog, saveProgram, deleteProgram, saveCoursePrograms, saveUnitLimit, deleteUnitLimit, findUnitLimit, SEMESTERS } from './catalog.js';
 import { renderTemplate, preloadTemplates, setActiveNav } from './templates.js';
 
 loadSession();
 
 // Each portal's markup lives in html/<portal>.html. Load it before rendering.
 await preloadTemplates(['auth', 'student', 'admin', 'faculty', 'accounting', 'registrar']);
+
+// Programs, subject program mappings and unit limits are shared by every portal.
+await loadCatalog();
 
 export async function renderAll() {
   const authPage = $('#authPage');
@@ -169,6 +176,8 @@ const ACCOUNTING_VIEWS = {
 const REGISTRAR_VIEWS = {
   dashboard: { label: 'Dashboard', sub: 'Manage academic records' },
   students: { label: 'Student Management', sub: 'Applications and records' },
+  programs: { label: 'Programs', sub: 'Degree programs offered' },
+  unitlimits: { label: 'Unit Limits', sub: 'Maximum units per program, year and semester' },
   presets: { label: 'Preset Subjects', sub: 'Curriculum presets' },
   prereqs: { label: 'Prerequisite Subjects', sub: 'Required sequences' },
   courses: { label: 'Manage Subjects', sub: 'Curriculum' }
@@ -302,6 +311,8 @@ async function renderRegistrarLayout() {
 
   if (view === 'dashboard') content.innerHTML = await renderRegistrarDashboard();
   else if (view === 'students') content.innerHTML = await renderRegistrarStudents();
+  else if (view === 'programs') content.innerHTML = await renderRegistrarPrograms();
+  else if (view === 'unitlimits') content.innerHTML = await renderRegistrarUnitLimits();
   else if (view === 'presets') content.innerHTML = await renderRegistrarPresets();
   else if (view === 'prereqs') content.innerHTML = await renderRegistrarPrereqs();
   else if (view === 'courses') content.innerHTML = await renderRegistrarCourses();
@@ -376,6 +387,29 @@ window.confirmStudentSubjects = async (studentId) => {
     }
 
     window.facultyPrereqErrors = [];
+
+    // Enforce the unit limit the Registrar set for this program/year/semester.
+    const apps = await supa('applications', { match: { user_id: Number(studentId) } }).catch(() => []);
+    let program = (apps[0] || {}).program || {};
+    if (typeof program === 'string') { try { program = JSON.parse(program); } catch (e) { program = {}; } }
+    const semester = SEMESTERS.includes(window.facultySemester) ? window.facultySemester : '1st Semester';
+    const limit = findUnitLimit(program.preferred, program.year_level, semester);
+
+    if (limit) {
+      const unitsOf = (courseId) => {
+        const c = courses.find(x => String(x.id) === String(courseId));
+        return c ? Number(c.units) || 0 : 0;
+      };
+      const recordedUnits = recorded.filter(s => !isHistorySubject(s)).reduce((sum, s) => sum + unitsOf(s.course_id), 0);
+      const pendingUnits = window.tempStudentSubjects.reduce((sum, s) => sum + (Number(s.units) || unitsOf(s.courseId)), 0);
+      const totalUnits = recordedUnits + pendingUnits;
+
+      if (totalUnits > limit.maxUnits) {
+        toast(`Cannot confirm subjects: the load is ${totalUnits} units but the limit is ${limit.maxUnits} for this program, year and semester.`, 'error');
+        renderAll();
+        return;
+      }
+    }
 
     for (const sub of window.tempStudentSubjects) {
       await supa('student_subjects', { method: 'POST', body: { user_id: Number(studentId), course_id: Number(sub.courseId), status: 'Enrolled' } });
@@ -516,6 +550,7 @@ document.addEventListener('click', async (e) => {
   if (action === 'facultyManageStudent') {
     window.facultySelectedStudent = Number(btn.dataset.id);
     window.tempStudentSubjects = [];
+    window.facultySemester = '1st Semester';
     renderAll();
     return;
   }
@@ -538,6 +573,56 @@ document.addEventListener('click', async (e) => {
   // REGISTRAR ACTIONS
   if (action === 'regManageStudent') {
     await regManageStudentModal(Number(btn.dataset.id));
+    return;
+  }
+
+  if (action === 'regCreateProgram') {
+    await regProgramModal(null);
+    return;
+  }
+
+  if (action === 'regEditProgram') {
+    await regProgramModal(Number(btn.dataset.id));
+    return;
+  }
+
+  if (action === 'regDeleteProgram') {
+    const programId = btn.dataset.id;
+    const apps = await supa('applications').catch(() => []);
+    const inUse = apps.filter((a) => {
+      let pr = a.program || {};
+      if (typeof pr === 'string') { try { pr = JSON.parse(pr); } catch (e) { pr = {}; } }
+      return String(pr.preferred) === String(programId);
+    }).length;
+
+    if (inUse) {
+      return toast(`Cannot delete this program: ${inUse} student application(s) already use it.`, 'error');
+    }
+    if (!confirm('Delete this program? Its unit limits and subject assignments will also be removed.')) return;
+
+    try {
+      await deleteProgram(Number(programId));
+      await loadCatalog();
+      toast('Program deleted.');
+      renderAll();
+    } catch (err) {
+      console.error(err);
+      toast('Failed to delete the program.', 'error');
+    }
+    return;
+  }
+
+  if (action === 'regDeleteUnitLimit') {
+    if (!confirm('Remove this unit limit?')) return;
+    try {
+      await deleteUnitLimit(Number(btn.dataset.id));
+      await loadCatalog();
+      toast('Unit limit removed.');
+      renderAll();
+    } catch (err) {
+      console.error(err);
+      toast('Failed to remove the unit limit.', 'error');
+    }
     return;
   }
 
@@ -673,11 +758,18 @@ document.addEventListener('click', async (e) => {
     const day = document.getElementById('reg_edit_course_day').value;
     const start = document.getElementById('reg_edit_course_start').value;
     const end = document.getElementById('reg_edit_course_end').value;
-    const prog = Number(document.getElementById('reg_edit_course_prog').value);
+    const progIds = [...document.querySelectorAll('#regEditCourseProgs input:checked')]
+      .map(input => Number(input.value))
+      .filter(n => Number.isFinite(n));
 
     if (!code || !title || !units || !day || !start || !end) {
       return toast('Please fill out all fields.', 'error');
     }
+    if (!progIds.length) return toast('Select at least one program for this subject.', 'error');
+
+    const general = progIds.includes(0);
+    const specific = progIds.filter(pid => pid !== 0);
+    if (general && specific.length) return toast('Choose General or specific programs, not both.', 'error');
 
     const payload = {
       code: code,
@@ -685,11 +777,12 @@ document.addEventListener('click', async (e) => {
       units: units,
       schedule_day: day,
       schedule_time: `${start} - ${end}`,
-      program_id: prog
+      program_id: general ? 0 : specific[0]
     };
 
     try {
       await supa('courses', { method: 'PATCH', match: { id: id }, body: payload });
+      await saveCoursePrograms(id, specific);
       toast('Subject updated successfully.');
       document.getElementById('regEditCourseModal')?.remove();
       renderAll();
@@ -705,6 +798,8 @@ document.addEventListener('click', async (e) => {
     if (!confirm('Are you sure you want to delete this subject from the curriculum?')) return;
     try {
       await supa('courses', { method: 'DELETE', match: { id: courseId } });
+      // Drop any extra program assignments for the deleted subject.
+      await saveCoursePrograms(courseId, []).catch(() => {});
       toast('Subject deleted.');
       renderAll();
     } catch (err) {
@@ -739,6 +834,10 @@ document.addEventListener('change', async (e) => {
   else if (key === 'regPresetFilterYear') { window.regPresetFilterYear = e.target.value; renderAll(); }
   else if (key === 'regPrereqFilterProg') { window.regPrereqFilterProg = e.target.value; renderAll(); }
   else if (key === 'regCourseFilterProg') { window.regCourseFilterProg = e.target.value; renderAll(); }
+  else if (key === 'regLimitFilterProg') { window.regLimitFilterProg = e.target.value; renderAll(); }
+  else if (key === 'regLimitFilterYear') { window.regLimitFilterYear = e.target.value; renderAll(); }
+  else if (key === 'regLimitFilterSem') { window.regLimitFilterSem = e.target.value; renderAll(); }
+  else if (key === 'facultySemester') { window.facultySemester = e.target.value; renderAll(); }
   else if (key === 'regFilterProg') { window.regFilterProg = e.target.value; renderAll(); }
   else if (key === 'regFilterYear') { window.regFilterYear = e.target.value; renderAll(); }
   else if (key === 'regFilterStatus') { window.regFilterStatus = e.target.value; renderAll(); }
@@ -829,22 +928,68 @@ document.addEventListener('submit', async (e) => {
     const end = fd.get('schedule_time_end');
     const timeStr = `${start} - ${end}`;
 
+    const progIds = fd.getAll('program_ids').map(Number).filter(n => Number.isFinite(n));
+    if (!progIds.length) return toast('Select at least one program for this subject.', 'error');
+
+    const general = progIds.includes(0);
+    const specific = progIds.filter(pid => pid !== 0);
+    if (general && specific.length) return toast('Choose General or specific programs, not both.', 'error');
+
     const payload = {
       code: fd.get('code'),
       title: fd.get('title'),
       units: Number(fd.get('units')),
       schedule_day: fd.get('schedule_day'),
       schedule_time: timeStr,
-      program_id: Number(fd.get('program_id'))
+      program_id: general ? 0 : specific[0]
     };
 
     try {
-      await supa('courses', { method: 'POST', body: payload });
+      const created = await supa('courses', { method: 'POST', body: payload });
+      const newId = Array.isArray(created) && created[0] ? created[0].id : null;
+      if (newId) await saveCoursePrograms(newId, specific);
       toast('Subject created successfully.');
       e.target.reset();
       renderAll();
     } catch (err) {
       toast('Failed to create subject. Check if code already exists.', 'error');
+    }
+    return;
+  }
+
+  if (e.target.id === 'regProgramForm') {
+    const fd = new FormData(e.target);
+    const id = fd.get('program_id');
+
+    try {
+      await saveProgram({ id: id ? Number(id) : null, code: fd.get('code'), name: fd.get('name') });
+      await loadCatalog();
+      toast(id ? 'Program updated.' : 'Program created.');
+      document.getElementById('regProgramModal')?.remove();
+      renderAll();
+    } catch (err) {
+      console.error(err);
+      toast(err.message || 'Failed to save the program.', 'error');
+    }
+    return;
+  }
+
+  if (e.target.id === 'regUnitLimitForm') {
+    const fd = new FormData(e.target);
+
+    try {
+      await saveUnitLimit({
+        programId: fd.get('program_id'),
+        year: fd.get('year'),
+        semester: fd.get('semester'),
+        maxUnits: fd.get('max_units')
+      });
+      await loadCatalog();
+      toast('Unit limit saved.');
+      renderAll();
+    } catch (err) {
+      console.error(err);
+      toast(err.message || 'Failed to save the unit limit.', 'error');
     }
     return;
   }
@@ -1036,6 +1181,10 @@ window.regPresetFilterProg = 'all';
 window.regPresetFilterYear = 'all';
 window.regPrereqFilterProg = 'all';
 window.regCourseFilterProg = 'all';
+window.regLimitFilterProg = 'all';
+window.regLimitFilterYear = 'all';
+window.regLimitFilterSem = 'all';
+window.facultySemester = '1st Semester';
 window.facultySelectedStudent = null;
 window.facultyPrereqErrors = [];
 window.accSearch = '';

@@ -689,6 +689,32 @@ img, svg, iframe, video, canvas { max-width: 100%; }
 /* =========================================================
    PRINT (registration form, student record, reports)
    ========================================================= */
+/* Programs a subject belongs to: a checkbox grid instead of a single select. */
+.program-check-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 8px;
+  border: 1px solid #e3efe9;
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: #fff;
+}
+
+.program-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.8px;
+  line-height: 1.35;
+  cursor: pointer;
+}
+
+.program-check input { flex: 0 0 auto; }
+
+@media (max-width: 520px) {
+  .program-check-grid { grid-template-columns: 1fr; }
+}
+
 @media print {
   @page { margin: 12mm; }
 

@@ -1,9 +1,23 @@
 import { esc, toast } from './utils.js';
 import { supa } from './api.js';
-import { decodePrereqSet, hydratePrereqSets, encodePrereqName, isPrereqRow } from './prereqs.js';
+import { decodePrereqSet, hydratePrereqSets, encodePrereqName } from './prereqs.js';
 import { reportCard } from './report.js';
+import {
+  isMetaRow,
+  getPrograms,
+  programById,
+  programLabel,
+  programOptionsHtml,
+  programCheckboxes,
+  getCourseProgramIds,
+  courseMatchesProgram,
+  courseProgramLabels,
+  getUnitLimits,
+  findUnitLimit,
+  YEAR_LEVELS,
+  SEMESTERS
+} from './catalog.js';
 
-const PROGRAMS = { '0': 'General', '1': 'BEEd', '2': 'BSEd', '8': 'BSCS' };
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 // --- REGISTRAR DASHBOARD ---
@@ -17,7 +31,7 @@ export async function renderRegistrarDashboard() {
     supa('payment_logs').catch(() => [])
   ]);
 
-  const presets = presetRows.filter(p => !isPrereqRow(p));
+  const presets = presetRows.filter(p => !isMetaRow(p));
   const prereqSets = presetRows.map(decodePrereqSet).filter(Boolean);
   const submitted = apps.filter(a => a.submitted && !a.returned);
   const enrolled = apps.filter(a => a.status === 'Approved').length;
@@ -25,14 +39,14 @@ export async function renderRegistrarDashboard() {
   const verified = submitted.length - docsPending;
   const collected = logRows.reduce((sum, l) => sum + Number(l.amount || 0), 0);
 
-  const programRows = Object.entries(PROGRAMS).filter(([id]) => id !== '0').map(([id, name]) => {
+  const programRows = getPrograms().filter(p => !p.general).map((p) => {
     const ofProgram = apps.filter(a => {
       let pr = a.program || {};
       if (typeof pr === 'string') { try { pr = JSON.parse(pr); } catch (e) { pr = {}; } }
-      return String(pr.preferred) === String(id);
+      return String(pr.preferred) === String(p.id);
     });
     return [
-      name,
+      p.code,
       ofProgram.length,
       ofProgram.filter(a => a.submitted && !a.returned).length,
       ofProgram.filter(a => a.status === 'Approved').length
@@ -47,7 +61,7 @@ export async function renderRegistrarDashboard() {
     return [
       u.name,
       u.student_id || '-',
-      PROGRAMS[pr.preferred] || 'Not set',
+      programLabel(pr.preferred, 'Not set'),
       pr.year_level ? 'Year ' + pr.year_level : '-',
       app.status === 'Approved' ? 'Enrolled' : (app.submitted ? 'Applicant' : 'In Progress'),
       app.doc_type ? (docsComplete(app) ? 'Complete' : 'Incomplete') : 'No checklist',
@@ -148,10 +162,7 @@ export async function renderRegistrarStudents() {
       </div>
       <div style="width: 140px;">
         <select class="rp-input" data-change="regFilterProg">
-          <option value="">All Programs</option>
-          <option value="1" ${filterProg === '1' ? 'selected' : ''}>BEEd</option>
-          <option value="2" ${filterProg === '2' ? 'selected' : ''}>BSEd</option>
-          <option value="8" ${filterProg === '8' ? 'selected' : ''}>BSCS</option>
+          ${programOptionsHtml(filterProg, { all: true, allValue: '' })}
         </select>
       </div>
       <div style="width: 140px;">
@@ -180,7 +191,7 @@ export async function renderRegistrarStudents() {
             const u = users.find(x => String(x.id) === String(app.user_id)) || { name: 'Unknown' };
             let pr = app.program || {};
             if (typeof pr === 'string') { try { pr = JSON.parse(pr); } catch(e){} }
-            const progName = PROGRAMS[pr.preferred] || 'Unknown';
+            const progName = programLabel(pr.preferred);
             
             return `
               <tr>
@@ -429,7 +440,7 @@ export async function regManageStudentModal(userId, tab) {
 
       <div class="rp-card">
         <div class="rp-card-head"><h3>Enrollment</h3></div>
-        ${kv('Program', PROGRAMS[pr.preferred] || 'Not set')}
+        ${kv('Program', programLabel(pr.preferred, 'Not set'))}
         ${kv('Year Level', pr.year_level ? 'Year ' + pr.year_level : '')}
         ${kv('Status', app.status || (app.submitted ? 'Pending' : 'In Progress'))}
         ${kv('Regularity', app.is_regular === false ? 'Irregular' : 'Regular')}
@@ -638,7 +649,7 @@ function documentPreview(url, name) {
 // --- REGISTRAR PRESETS ---
 export async function renderRegistrarPresets() {
   // Rows that hold prerequisite sequences live in the same table and are hidden here.
-  const presets = (await supa('presets')).filter(p => !isPrereqRow(p));
+  const presets = (await supa('presets')).filter(p => !isMetaRow(p));
   const presetSubs = await supa('preset_subjects').catch(() => []);
   const filterProg = window.regPresetFilterProg || 'all';
   const filterYear = window.regPresetFilterYear || 'all';
@@ -653,17 +664,11 @@ export async function renderRegistrarPresets() {
     <div class="rp-toolbar" style="margin-bottom:20px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
       <div style="display:flex; gap:10px;">
         <select class="rp-input" data-change="regPresetFilterProg" style="width:160px;">
-          <option value="all">All Programs</option>
-          <option value="1" ${filterProg === '1' ? 'selected' : ''}>BEEd</option>
-          <option value="2" ${filterProg === '2' ? 'selected' : ''}>BSEd</option>
-          <option value="8" ${filterProg === '8' ? 'selected' : ''}>BSCS</option>
+          ${programOptionsHtml(filterProg, { all: true })}
         </select>
         <select class="rp-input" data-change="regPresetFilterYear" style="width:140px;">
           <option value="all">All Years</option>
-          <option value="1" ${filterYear === '1' ? 'selected' : ''}>1st Year</option>
-          <option value="2" ${filterYear === '2' ? 'selected' : ''}>2nd Year</option>
-          <option value="3" ${filterYear === '3' ? 'selected' : ''}>3rd Year</option>
-          <option value="4" ${filterYear === '4' ? 'selected' : ''}>4th Year</option>
+          ${YEAR_LEVELS.map(y => `<option value="${y}" ${String(filterYear) === String(y) ? 'selected' : ''}>Year ${y}</option>`).join('')}
         </select>
       </div>
       <button class="rp-btn rp-btn-primary" data-action="regCreatePreset">＋ Create New Preset</button>
@@ -675,7 +680,7 @@ export async function renderRegistrarPresets() {
         <tbody>
           ${filteredPresets.length ? filteredPresets.map(p => {
             const count = presetSubs.filter(ps => String(ps.preset_id) === String(p.id)).length;
-            const pName = PROGRAMS[p.program_id] || 'Unknown';
+            const pName = programLabel(p.program_id);
             return `
               <tr>
                 <td><strong>${esc(p.name)}</strong></td>
@@ -700,7 +705,12 @@ export async function renderRegistrarPresets() {
 export async function renderRegistrarCourses() {
   const courses = await supa('courses').catch(() => []);
   const filterProg = window.regCourseFilterProg || 'all';
-  const filteredCourses = courses.filter(c => filterProg === 'all' || String(c.program_id) === String(filterProg));
+  const filteredCourses = courses.filter(c => filterProg === 'all' || courseMatchesProgram(c, filterProg));
+
+  // A subject can be offered to several programs at once.
+  const programBadges = (c) => courseProgramLabels(c)
+    .map(label => `<span class="rp-badge ${label === 'General' ? 'gold' : 'green'}">${esc(label)}</span>`)
+    .join(' ');
 
   return `
     <div class="rp-grid-2">
@@ -731,13 +741,10 @@ export async function renderRegistrarCourses() {
             </div>
           </div>
           <div class="field">
-            <label>Program</label>
-            <select class="rp-input" name="program_id" required>
-              <option value="0">General (All Programs)</option>
-              <option value="1">BEEd (Elementary Education)</option>
-              <option value="2">BSEd (Secondary Education)</option>
-              <option value="8">BSCS (Computer Science)</option>
-            </select>
+            <label>Programs <span class="rp-hint">(a subject can belong to several)</span></label>
+            <div class="program-check-grid" id="regCreateCourseProgs">
+              ${programCheckboxes()}
+            </div>
           </div>
           <button type="submit" class="rp-btn rp-btn-primary" style="margin-top: 10px; justify-content: center;">Create Subject</button>
         </form>
@@ -747,11 +754,7 @@ export async function renderRegistrarCourses() {
         <div class="rp-card-head" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:16px;">
           <h3 style="margin:0;">Subject List</h3>
           <select class="rp-input" data-change="regCourseFilterProg" style="width:auto; min-width:160px; padding:6px 12px;">
-            <option value="all">All Programs</option>
-            <option value="0" ${filterProg === '0' ? 'selected' : ''}>General Subjects</option>
-            <option value="1" ${filterProg === '1' ? 'selected' : ''}>BEEd</option>
-            <option value="2" ${filterProg === '2' ? 'selected' : ''}>BSEd</option>
-            <option value="8" ${filterProg === '8' ? 'selected' : ''}>BSCS</option>
+            ${programOptionsHtml(filterProg, { all: true, includeGeneral: true })}
           </select>
         </div>
         
@@ -760,13 +763,12 @@ export async function renderRegistrarCourses() {
             <thead><tr><th>Code</th><th>Title</th><th>Prog</th><th>Units</th><th>Schedule</th><th style="text-align:right">Action</th></tr></thead>
             <tbody>
               ${filteredCourses.length ? filteredCourses.map(c => {
-                const pName = PROGRAMS[c.program_id] || 'Unknown';
                 const timeStr = c.schedule_time || '';
                 return `
                 <tr>
                   <td><strong>${esc(c.code)}</strong></td>
                   <td>${esc(c.title)}</td>
-                  <td><span class="rp-badge ${c.program_id === '0' ? 'gold' : 'green'}">${pName}</span></td>
+                  <td style="white-space:normal;">${programBadges(c)}</td>
                   <td>${c.units}</td>
                   <td class="rp-hint" style="white-space:nowrap;">${esc((c.schedule_day || '') + ' ' + timeStr)}</td>
                   <td style="text-align:right; white-space:nowrap;">
@@ -835,9 +837,7 @@ export async function regEditPresetModal(presetId) {
                 <div class="field">
                   <label>Program</label>
                   <select class="rp-input" id="reg_preset_prog" required>
-                    <option value="1" ${preset.program_id === '1' ? 'selected' : ''}>BEEd</option>
-                    <option value="2" ${preset.program_id === '2' ? 'selected' : ''}>BSEd</option>
-                    <option value="8" ${preset.program_id === '8' ? 'selected' : ''}>BSCS</option>
+                    ${programOptionsHtml(preset.program_id)}
                   </select>
                 </div>
                 <div class="field-row">
@@ -938,13 +938,10 @@ export async function regEditCourseModal(courseId) {
               </div>
             </div>
             <div class="field">
-              <label>Program</label>
-              <select class="rp-input" id="reg_edit_course_prog" name="program_id" required>
-                <option value="0" ${c.program_id === '0' ? 'selected' : ''}>General (All Programs)</option>
-                <option value="1" ${c.program_id === '1' ? 'selected' : ''}>BEEd (Elementary Education)</option>
-                <option value="2" ${c.program_id === '2' ? 'selected' : ''}>BSEd (Secondary Education)</option>
-                <option value="8" ${c.program_id === '8' ? 'selected' : ''}>BSCS (Computer Science)</option>
-              </select>
+              <label>Programs <span class="rp-hint">(a subject can belong to several)</span></label>
+              <div class="program-check-grid" id="regEditCourseProgs">
+                ${programCheckboxes(c)}
+              </div>
             </div>
             <button type="button" class="rp-btn rp-btn-primary" data-action="regSaveEditedCourse" style="margin-top: 20px; width:100%;">Save Changes</button>
           </form>
@@ -1047,10 +1044,7 @@ export async function renderRegistrarPrereqs() {
     <div class="rp-toolbar" style="margin-bottom:20px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
       <div style="display:flex; gap:10px;">
         <select class="rp-input" data-change="regPrereqFilterProg" style="width:160px;">
-          <option value="all">All Programs</option>
-          <option value="1" ${filterProg === '1' ? 'selected' : ''}>BEEd</option>
-          <option value="2" ${filterProg === '2' ? 'selected' : ''}>BSEd</option>
-          <option value="8" ${filterProg === '8' ? 'selected' : ''}>BSCS</option>
+          ${programOptionsHtml(filterProg, { all: true })}
         </select>
       </div>
       <button class="rp-btn rp-btn-primary" data-action="regCreatePrereq">Create New Prerequisite Set</button>
@@ -1067,7 +1061,7 @@ export async function renderRegistrarPrereqs() {
           ${filtered.length ? filtered.map(set => `
             <tr>
               <td><strong>${esc(set.title)}</strong></td>
-              <td><span class="rp-badge green">${PROGRAMS[set.programId] || 'Unknown'}</span></td>
+              <td><span class="rp-badge green">${programLabel(set.programId)}</span></td>
               <td>${chainText(set)}</td>
               <td style="text-align:right; white-space:nowrap;">
                 <button class="rp-btn rp-btn-primary rp-btn-sm" data-action="regEditPrereq" data-id="${set.id}">Edit</button>
@@ -1116,9 +1110,7 @@ export async function regEditPrereqModal(setId) {
                 <div class="field">
                   <label>Program</label>
                   <select class="rp-input" id="reg_prereq_prog">
-                    <option value="1" ${String(set.programId) === '1' ? 'selected' : ''}>BEEd</option>
-                    <option value="2" ${String(set.programId) === '2' ? 'selected' : ''}>BSEd</option>
-                    <option value="8" ${String(set.programId) === '8' ? 'selected' : ''}>BSCS</option>
+                    ${programOptionsHtml(set.programId)}
                   </select>
                 </div>
                 <div class="rp-hint">The student must take these subjects in the order shown on the right.</div>
@@ -1249,3 +1241,182 @@ window.regPrereqDrop = (event, index) => {
   list.splice(index, 0, item);
   drawPrereqList();
 };
+
+/* =========================================================================
+   PROGRAMS
+   -------------------------------------------------------------------------
+   Programs created here are read through catalog.js, so they immediately
+   become available to the student application form, subjects, presets,
+   prerequisite sets, unit limits and the faculty portal.
+   ========================================================================= */
+
+export async function renderRegistrarPrograms() {
+  const [apps, courses] = await Promise.all([
+    supa('applications').catch(() => []),
+    supa('courses').catch(() => [])
+  ]);
+
+  const list = getPrograms().filter(p => !p.general);
+
+  const studentsOf = (id) => apps.filter((a) => {
+    let pr = a.program || {};
+    if (typeof pr === 'string') { try { pr = JSON.parse(pr); } catch (e) { pr = {}; } }
+    return String(pr.preferred) === String(id);
+  }).length;
+
+  const subjectsOf = (id) => courses.filter(c => getCourseProgramIds(c).some(pid => String(pid) === String(id))).length;
+
+  return `
+    <div class="rp-toolbar" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+      <div class="rp-hint" style="max-width:560px;">Programs created here appear in the student application form, the subject curriculum, presets, prerequisite sets, unit limits and the faculty portal.</div>
+      <button class="rp-btn rp-btn-primary" data-action="regCreateProgram">＋ New Program</button>
+    </div>
+
+    <div class="rp-table-wrap">
+      <table class="rp-table">
+        <thead><tr><th>Code</th><th>Program Name</th><th>Applicants</th><th>Subjects</th><th style="text-align:right">Actions</th></tr></thead>
+        <tbody>
+          ${list.length ? list.map(p => `
+            <tr>
+              <td><strong>${esc(p.code)}</strong></td>
+              <td>${esc(p.name)}</td>
+              <td>${studentsOf(p.id)}</td>
+              <td>${subjectsOf(p.id)}</td>
+              <td style="text-align:right; white-space:nowrap;">
+                ${p.rowId ? `
+                  <button class="rp-btn rp-btn-primary rp-btn-sm" data-action="regEditProgram" data-id="${p.id}">Edit</button>
+                  <button class="rp-btn rp-btn-danger rp-btn-sm" data-action="regDeleteProgram" data-id="${p.id}">Delete</button>
+                ` : '<span class="rp-hint">Built in</span>'}
+              </td>
+            </tr>
+          `).join('') : '<tr><td colspan="5" class="rp-empty">No programs found.</td></tr>'}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+export async function regProgramModal(programId) {
+  const existing = programId ? programById(programId) : null;
+
+  const modalHtml = `
+    <div class="rp-modal-backdrop" id="regProgramModal">
+      <div class="rp-modal">
+        <div class="rp-modal-head">
+          <h3>${existing ? 'Edit Program' : 'Create New Program'}</h3>
+          <button type="button" class="rp-btn rp-btn-ghost rp-btn-sm" onclick="document.getElementById('regProgramModal').remove()">✕</button>
+        </div>
+        <div class="rp-modal-body">
+          <form id="regProgramForm" style="display:flex; flex-direction:column; gap:12px;">
+            <input type="hidden" name="program_id" value="${existing ? existing.id : ''}">
+            <div class="field">
+              <label>Program Code</label>
+              <input class="rp-input" name="code" value="${esc(existing ? existing.code : '')}" placeholder="e.g. BSIT" required>
+            </div>
+            <div class="field">
+              <label>Program Name</label>
+              <input class="rp-input" name="name" value="${esc(existing ? existing.name : '')}" placeholder="e.g. BS Information Technology" required>
+            </div>
+            <p class="rp-hint">The code is what appears in student records and reports. The full name is used in selection lists.</p>
+            <button type="submit" class="rp-btn rp-btn-primary" style="margin-top:6px;">${existing ? 'Save Changes' : 'Create Program'}</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.getElementById('regProgramModal')?.remove();
+  document.body.insertAdjacentHTML('beforeend', modalHtml);
+}
+
+/* =========================================================================
+   UNIT LIMITS
+   -------------------------------------------------------------------------
+   Maximum units per program, year level and semester. The faculty portal
+   reads these through catalog.js and blocks a subject load that is over the
+   limit before the subjects can be confirmed.
+   ========================================================================= */
+
+export async function renderRegistrarUnitLimits() {
+  const fProg = window.regLimitFilterProg || 'all';
+  const fYear = window.regLimitFilterYear || 'all';
+  const fSem = window.regLimitFilterSem || 'all';
+
+  const all = getUnitLimits();
+  const filtered = all.filter(l =>
+    (fProg === 'all' || String(l.programId) === String(fProg))
+    && (fYear === 'all' || String(l.year) === String(fYear))
+    && (fSem === 'all' || l.semester === fSem)
+  );
+
+  const canSet = fProg !== 'all' && fYear !== 'all' && fSem !== 'all';
+  const existing = canSet ? findUnitLimit(fProg, fYear, fSem) : null;
+
+  return `
+    <div class="rp-toolbar" style="gap:10px; flex-wrap:wrap;">
+      <div style="width:200px;">
+        <select class="rp-input" data-change="regLimitFilterProg">
+          ${programOptionsHtml(fProg, { all: true })}
+        </select>
+      </div>
+      <div style="width:150px;">
+        <select class="rp-input" data-change="regLimitFilterYear">
+          <option value="all">All Years</option>
+          ${YEAR_LEVELS.map(y => `<option value="${y}" ${String(fYear) === String(y) ? 'selected' : ''}>Year ${y}</option>`).join('')}
+        </select>
+      </div>
+      <div style="width:180px;">
+        <select class="rp-input" data-change="regLimitFilterSem">
+          <option value="all">All Semesters</option>
+          ${SEMESTERS.map(s => `<option value="${esc(s)}" ${fSem === s ? 'selected' : ''}>${esc(s)}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+
+    ${canSet ? `
+      <div class="rp-card" style="max-width:560px; margin-bottom:20px; background:var(--mint-50);">
+        <div class="rp-card-head">
+          <h3>Maximum Units — ${esc(programLabel(fProg))} · Year ${esc(fYear)} · ${esc(fSem)}</h3>
+        </div>
+        <form id="regUnitLimitForm" style="display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap;">
+          <input type="hidden" name="program_id" value="${esc(fProg)}">
+          <input type="hidden" name="year" value="${esc(fYear)}">
+          <input type="hidden" name="semester" value="${esc(fSem)}">
+          <div class="field" style="flex:1 1 170px; margin-bottom:0;">
+            <label>Maximum units per semester</label>
+            <input class="rp-input" type="number" name="max_units" min="1" max="60" value="${existing ? existing.maxUnits : ''}" required>
+          </div>
+          <button type="submit" class="rp-btn rp-btn-primary">${existing ? 'Update Limit' : 'Set Limit'}</button>
+        </form>
+        <p class="rp-hint" style="margin-top:10px;">
+          ${existing
+            ? `Currently ${existing.maxUnits} units. Faculty cannot confirm a subject load above this for ${esc(programLabel(fProg))} · Year ${esc(fYear)} · ${esc(fSem)}.`
+            : 'No limit set yet — a student in this program, year and semester can be given any number of units.'}
+        </p>
+      </div>
+    ` : `
+      <div class="rp-notice info" style="margin-bottom:20px;">
+        <span>Choose a program, year level and semester to set the maximum number of units a student may take.</span>
+      </div>
+    `}
+
+    <div class="rp-table-wrap">
+      <table class="rp-table">
+        <thead><tr><th>Program</th><th>Year</th><th>Semester</th><th>Max Units</th><th style="text-align:right">Actions</th></tr></thead>
+        <tbody>
+          ${filtered.length ? filtered.map(l => `
+            <tr>
+              <td><strong>${esc(programLabel(l.programId))}</strong></td>
+              <td>Year ${l.year}</td>
+              <td>${esc(l.semester)}</td>
+              <td><span class="rp-badge green">${l.maxUnits} units</span></td>
+              <td style="text-align:right">
+                <button class="rp-btn rp-btn-danger rp-btn-sm" data-action="regDeleteUnitLimit" data-id="${l.rowId}">Delete</button>
+              </td>
+            </tr>
+          `).join('') : '<tr><td colspan="5" class="rp-empty">No unit limits set for this filter.</td></tr>'}
+        </tbody>
+      </table>
+    </div>
+  `;
+}

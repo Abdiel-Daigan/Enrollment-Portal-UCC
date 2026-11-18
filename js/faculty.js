@@ -1,14 +1,8 @@
 import { esc, toast, isHistorySubject } from './utils.js';
 import { supa } from './api.js';
-import { decodePrereqSet, hydratePrereqSets, evaluatePrerequisites, missingLabel, isPrereqRow } from './prereqs.js';
+import { decodePrereqSet, hydratePrereqSets, evaluatePrerequisites, missingLabel } from './prereqs.js';
 import { reportCard } from './report.js';
-
-const PROGRAMS = {
-  '0': 'General',
-  '1': 'BEEd',
-  '2': 'BSEd',
-  '8': 'BSCS'
-};
+import { isMetaRow, programLabel, programOptionsHtml, programCheckboxes, courseMatchesProgram, findUnitLimit, SEMESTERS } from './catalog.js';
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
@@ -38,7 +32,7 @@ export async function renderFacultyDashboard() {
     return [
       u.name,
       u.student_id || '-',
-      PROGRAMS[pr.preferred] || 'Not set',
+      programLabel(pr.preferred, 'Not set'),
       pr.year_level ? 'Year ' + pr.year_level : '-',
       load.length,
       units,
@@ -128,10 +122,10 @@ export async function renderFacultyProgress() {
       let pr = app.program || {};
       if (typeof pr === 'string') { try { pr = JSON.parse(pr); } catch(e){} }
       const progId = pr ? pr.preferred : null;
-      const progName = progId ? (PROGRAMS[progId] || 'Unknown') : 'No Program';
+      const progName = progId ? programLabel(progId) : 'No Program';
       const isRegular = app.is_regular !== false;
       
-      const programCourses = courses.filter(c => String(c.program_id) === String(progId) || String(c.program_id) === '0');
+      const programCourses = courses.filter(c => courseMatchesProgram(c, progId));
       const allRecorded = subjects.filter(s => String(s.user_id) === String(student.id));
       // Subjects the Registrar already graded (Passed/Dropped) are history, not current load
       const completedSubjects = allRecorded.filter(isHistorySubject);
@@ -147,7 +141,7 @@ export async function renderFacultyProgress() {
         !tempIds.includes(String(c.id))
       );
 
-      const matchingPresets = presets.filter(p => !isPrereqRow(p) && String(p.program_id) === String(progId) && String(p.year_level) === String(pr.year_level));
+      const matchingPresets = presets.filter(p => !isMetaRow(p) && String(p.program_id) === String(progId) && String(p.year_level) === String(pr.year_level));
 
       // Prerequisite check for the pending list: a subject may only be added when
       // everything before it in its sequence is passed already or also pending.
@@ -167,6 +161,17 @@ export async function renderFacultyProgress() {
         return `${c ? c.code : 'Subject'} — ${missingLabel(missing)}`;
       });
 
+      // Unit limit configured by the Registrar for this program/year/semester.
+      const semester = SEMESTERS.includes(window.facultySemester) ? window.facultySemester : '1st Semester';
+      const unitLimit = findUnitLimit(progId, pr.year_level, semester);
+      const takenUnits = taken.reduce((sum, t) => {
+        const c = courses.find(x => String(x.id) === String(t.course_id));
+        return sum + (c ? Number(c.units) : 0);
+      }, 0);
+      const pendingUnits = window.tempStudentSubjects.reduce((sum, s) => sum + (Number(s.units) || 0), 0);
+      const plannedUnits = takenUnits + pendingUnits;
+      const overLimit = !!unitLimit && plannedUnits > unitLimit.maxUnits;
+
       return `
         <div class="rp-toolbar" style="margin-bottom: 20px;">
           <button class="rp-btn rp-btn-ghost" onclick="window.closeFacultyStudent()">← Back to List</button>
@@ -178,11 +183,15 @@ export async function renderFacultyProgress() {
               <h3>${esc(student.name)} <span class="rp-hint">(${esc(student.student_id || 'No ID')})</span></h3>
               <div class="rp-hint">${esc(student.email)} · ${progName} - Year ${esc(pr.year_level || '?')}</div>
             </div>
-            <div style="display:flex; gap:10px; align-items:center;">
+            <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
               <label style="font-size:12.5px;font-weight:600;">Status:</label>
               <select class="rp-input" data-change="facultyRegularity" data-student="${student.id}" style="width:120px; padding:6px 10px;">
                 <option value="true" ${isRegular ? 'selected' : ''}>Regular</option>
                 <option value="false" ${!isRegular ? 'selected' : ''}>Irregular</option>
+              </select>
+              <label style="font-size:12.5px;font-weight:600;">Semester:</label>
+              <select class="rp-input" data-change="facultySemester" style="width:150px; padding:6px 10px;">
+                ${SEMESTERS.map(s => `<option value="${esc(s)}" ${semester === s ? 'selected' : ''}>${esc(s)}</option>`).join('')}
               </select>
             </div>
           </div>
@@ -192,7 +201,7 @@ export async function renderFacultyProgress() {
           <div class="rp-card" style="display:flex; flex-direction:column;">
             <div class="rp-card-head">
               <h3>Pre-Confirmed List</h3>
-              <span class="rp-hint">${window.tempStudentSubjects.length} subject(s)</span>
+              <span class="rp-hint">${window.tempStudentSubjects.length} subject(s) · ${plannedUnits}${unitLimit ? ' / ' + unitLimit.maxUnits : ''} units</span>
             </div>
             
             <div id="tempSubjectList" style="flex:1;">
@@ -216,6 +225,19 @@ export async function renderFacultyProgress() {
                   <strong>Prerequisite sequence is broken</strong>
                   <ul class="prereq-error-list">${prereqErrors.map(msg => `<li>${esc(msg)}</li>`).join('')}</ul>
                   <div class="rp-hint">Add the missing subject in sequence, or remove the subjects that cannot be taken yet.</div>
+                </div>
+              </div>
+            ` : ''}
+
+            ${overLimit ? `
+              <div class="rp-notice red" style="margin-top:14px;">
+                <div>
+                  <strong>Unit limit exceeded</strong>
+                  <div class="rp-hint" style="color:inherit;">
+                    ${esc(progName)} · Year ${esc(pr.year_level || '?')} · ${esc(semester)} allows a maximum of ${unitLimit.maxUnits} units.
+                    This load is ${plannedUnits} units (${plannedUnits - unitLimit.maxUnits} over).
+                  </div>
+                  <div class="rp-hint">Remove subjects from the list, or ask the Registrar to raise the limit in Unit Limits.</div>
                 </div>
               </div>
             ` : ''}
@@ -322,10 +344,7 @@ export async function renderFacultyProgress() {
       </div>
       <div style="width: 150px;">
         <select class="rp-input" data-change="facultyFilterProg">
-          <option value="">All Programs</option>
-          <option value="1" ${filterProg === '1' ? 'selected' : ''}>BEEd</option>
-          <option value="2" ${filterProg === '2' ? 'selected' : ''}>BSEd</option>
-          <option value="8" ${filterProg === '8' ? 'selected' : ''}>BSCS</option>
+          ${programOptionsHtml(filterProg, { all: true, allValue: '' })}
         </select>
       </div>
     </div>
@@ -342,7 +361,7 @@ export async function renderFacultyProgress() {
             const app = apps.find(a => String(a.user_id) === String(u.id)) || {};
             let pr = app.program || {};
             if (typeof pr === 'string') { try { pr = JSON.parse(pr); } catch(e){} }
-            const progName = PROGRAMS[pr.preferred] || 'Unknown';
+            const progName = programLabel(pr.preferred);
             
             return `
               <tr>
@@ -415,9 +434,7 @@ export async function facultyEditPresetModal(presetId) {
                 <div class="field">
                   <label>Program</label>
                   <select class="rp-input" id="preset_prog" required>
-                    <option value="1" ${preset.program_id === '1' ? 'selected' : ''}>BEEd</option>
-                    <option value="2" ${preset.program_id === '2' ? 'selected' : ''}>BSEd</option>
-                    <option value="8" ${preset.program_id === '8' ? 'selected' : ''}>BSCS</option>
+                    ${programOptionsHtml(preset.program_id)}
                   </select>
                 </div>
                 <div class="field-row">
@@ -519,10 +536,7 @@ export async function facultyEditCourseModal(courseId) {
             <div class="field">
               <label>Program</label>
               <select class="rp-input" id="edit_course_prog" name="program_id" required>
-                <option value="0" ${c.program_id === '0' ? 'selected' : ''}>General (All Programs)</option>
-                <option value="1" ${c.program_id === '1' ? 'selected' : ''}>BEEd (Elementary Education)</option>
-                <option value="2" ${c.program_id === '2' ? 'selected' : ''}>BSEd (Secondary Education)</option>
-                <option value="8" ${c.program_id === '8' ? 'selected' : ''}>BSCS (Computer Science)</option>
+                ${programCheckboxes(c)}
               </select>
             </div>
             <button type="button" class="rp-btn rp-btn-primary" data-action="facultySaveEditedCourse" style="margin-top: 20px; width:100%;">Save Changes</button>

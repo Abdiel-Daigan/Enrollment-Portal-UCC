@@ -1,10 +1,9 @@
 import { esc, isHistorySubject } from './utils.js';
 import { supa } from './api.js';
 import { docsComplete } from './registrar.js';
-import { decodePrereqSet, isPrereqRow } from './prereqs.js';
+import { decodePrereqSet } from './prereqs.js';
 import { reportCard } from './report.js';
-
-const PROGRAMS = { '0': 'General', '1': 'BEEd', '2': 'BSEd', '8': 'BSCS' };
+import { isMetaRow, getPrograms, programLabel } from './catalog.js';
 
 export async function renderAdminDashboard() {
   const [students, apps, courses, presetRows, subjectRows, logRows] = await Promise.all([
@@ -16,7 +15,7 @@ export async function renderAdminDashboard() {
     supa('payment_logs').catch(() => [])
   ]);
 
-  const presets = presetRows.filter(p => !isPrereqRow(p));
+  const presets = presetRows.filter(p => !isMetaRow(p));
   const prereqSets = presetRows.map(decodePrereqSet).filter(Boolean);
   const submitted = apps.filter(a => a.submitted && !a.returned);
   const verified = submitted.filter(docsComplete).length;
@@ -31,14 +30,14 @@ export async function renderAdminDashboard() {
     }, 0);
   const collected = logRows.reduce((sum, l) => sum + Number(l.amount || 0), 0);
 
-  const programRows = Object.entries(PROGRAMS).filter(([id]) => id !== '0').map(([id, name]) => {
+  const programRows = getPrograms().filter(p => !p.general).map((p) => {
     const ofProgram = apps.filter(a => {
       let pr = a.program || {};
       if (typeof pr === 'string') { try { pr = JSON.parse(pr); } catch (e) { pr = {}; } }
-      return String(pr.preferred) === String(id);
+      return String(pr.preferred) === String(p.id);
     });
     return [
-      name,
+      p.code,
       ofProgram.length,
       ofProgram.filter(a => a.submitted && !a.returned).length,
       ofProgram.filter(docsComplete).length,
@@ -58,7 +57,7 @@ export async function renderAdminDashboard() {
     return [
       u.name,
       u.student_id || '-',
-      PROGRAMS[pr.preferred] || 'Not set',
+      programLabel(pr.preferred, 'Not set'),
       pr.year_level ? 'Year ' + pr.year_level : '-',
       app.status === 'Approved' ? 'Enrolled' : (app.submitted ? 'Applicant' : 'In Progress'),
       app.doc_type ? (docsComplete(app) ? 'Complete' : 'Incomplete') : 'No checklist',
