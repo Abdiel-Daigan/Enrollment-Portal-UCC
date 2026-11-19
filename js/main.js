@@ -1080,6 +1080,10 @@ document.addEventListener('change', async (e) => {
   else if (key === 'regPresetFilterSem') { window.regPresetFilterSem = e.target.value; renderAll(); }
   else if (key === 'regPrereqFilterProg') { window.regPrereqFilterProg = e.target.value; renderAll(); }
   else if (key === 'regCourseFilterProg') { window.regCourseFilterProg = e.target.value; renderAll(); }
+  else if (key === 'regCourseFilterDay') { window.regCourseFilterDay = e.target.value; renderAll(); }
+  else if (key === 'regCourseFilterTime') { window.regCourseFilterTime = e.target.value; renderAll(); }
+  else if (key === 'regTermFilterProg') { window.regTermFilterProg = e.target.value; renderAll(); }
+  else if (key === 'regTermFilterYear') { window.regTermFilterYear = e.target.value; renderAll(); }
   else if (key === 'regLimitFilterProg') { window.regLimitFilterProg = e.target.value; renderAll(); }
   else if (key === 'regLimitFilterYear') { window.regLimitFilterYear = e.target.value; renderAll(); }
   else if (key === 'regLimitFilterSem') { window.regLimitFilterSem = e.target.value; renderAll(); }
@@ -1538,6 +1542,10 @@ window.regPresetFilterYear = 'all';
 window.regPresetFilterSem = 'all';
 window.regPrereqFilterProg = 'all';
 window.regCourseFilterProg = 'all';
+window.regCourseFilterDay = 'all';
+window.regCourseFilterTime = 'all';
+window.regTermFilterProg = 'all';
+window.regTermFilterYear = 'all';
 window.facultySelectedStudent = null;
 window.facultyPrereqErrors = [];
 window.accSearch = '';

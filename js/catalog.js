@@ -241,7 +241,7 @@ export function programOptionsHtml(selected, {
    specific program clears General.
    ------------------------------------------------------------------------- */
 
-export function programPickerHtml(selectedIds, { showGeneral = true, id = '' } = {}) {
+export function programPickerHtml(selectedIds, { showGeneral = true, id = '', search = true, tools = true } = {}) {
   const ids = [...new Set((selectedIds || []).map(Number).filter(n => Number.isFinite(n)))];
   const chosen = (value) => ids.some(v => String(v) === String(value));
 
@@ -264,14 +264,15 @@ export function programPickerHtml(selectedIds, { showGeneral = true, id = '' } =
 
   return `
     <div class="program-picker" ${id ? `id="${id}"` : ''}>
+      ${search || tools ? `
       <div class="program-picker-bar">
-        <input class="rp-input program-picker-search" type="search" placeholder="Filter programs by code or name…"
-               oninput="window.filterProgramPicker(this)">
-        <div class="program-picker-tools">
+        ${search ? `<input class="rp-input program-picker-search" type="search" placeholder="Filter programs by code or name…"
+               oninput="window.filterProgramPicker(this)">` : ''}
+        ${tools ? `<div class="program-picker-tools">
           <button type="button" class="rp-btn rp-btn-ghost rp-btn-sm" onclick="window.programPickerAll(this, true)">All programs</button>
           <button type="button" class="rp-btn rp-btn-ghost rp-btn-sm" onclick="window.programPickerAll(this, false)">Clear</button>
-        </div>
-      </div>
+        </div>` : ''}
+      </div>` : ''}
       <div class="program-picker-list">${options}</div>
       <p class="rp-hint program-picker-summary" data-picker-summary>${summaryHtml(ids)}</p>
     </div>

@@ -395,10 +395,6 @@ export async function renderFacultyProgress() {
       </div>
     </div>
 
-    <div class="rp-notice info" style="margin-bottom: 16px;">
-      <span>Only students the Registrar has <strong>accepted</strong> appear here.</span>
-    </div>
-
     <div class="rp-table-wrap">
       <table class="rp-table">
         <thead><tr><th>Student Name</th><th>Student ID</th><th>Program</th><th>Year</th><th style="text-align:right">Action</th></tr></thead>

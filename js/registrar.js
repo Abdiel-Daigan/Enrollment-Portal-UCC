@@ -798,10 +798,35 @@ export async function renderRegistrarPresets() {
 }
 
 // --- REGISTRAR COURSES ---
+const TIME_SLOTS = [
+  { value: 'morning', label: 'Morning (before 12:00)' },
+  { value: 'afternoon', label: 'Afternoon (12:00 – 17:00)' },
+  { value: 'evening', label: 'Evening (17:00 onwards)' }
+];
+
+// Start time of a "HH:MM - HH:MM" schedule, in minutes since midnight.
+const scheduleStartMinutes = (value) => {
+  const match = String(value || '').match(/(\d{1,2}):(\d{2})/);
+  if (!match) return null;
+  return Number(match[1]) * 60 + Number(match[2]);
+};
+
+const timeSlotOf = (minutes) => minutes === null
+  ? ''
+  : minutes < 720 ? 'morning' : minutes < 1020 ? 'afternoon' : 'evening';
+
 export async function renderRegistrarCourses() {
   const courses = await supa('courses').catch(() => []);
   const filterProg = window.regCourseFilterProg || 'all';
-  const filteredCourses = courses.filter(c => filterProg === 'all' || courseMatchesProgram(c, filterProg));
+  const filterDay = window.regCourseFilterDay || 'all';
+  const filterTime = window.regCourseFilterTime || 'all';
+
+  const filteredCourses = courses.filter((c) => {
+    if (filterProg !== 'all' && !courseMatchesProgram(c, filterProg)) return false;
+    if (filterDay !== 'all' && String(c.schedule_day || '') !== filterDay) return false;
+    if (filterTime !== 'all' && timeSlotOf(scheduleStartMinutes(c.schedule_time)) !== filterTime) return false;
+    return true;
+  });
 
   // A subject can be offered to several programs at once.
   const programBadges = (c) => courseProgramLabels(c)
@@ -838,7 +863,7 @@ export async function renderRegistrarCourses() {
           </div>
           <div class="field">
             <label>Offered to <span class="rp-hint">(pick one program, several, or General for all)</span></label>
-            ${programPickerHtml([], { id: 'regCreateCourseProgs' })}
+            ${programPickerHtml([], { id: 'regCreateCourseProgs', search: false, tools: false })}
           </div>
           <button type="submit" class="rp-btn rp-btn-primary" style="margin-top: 10px; justify-content: center;">Create Subject</button>
         </form>
@@ -847,9 +872,19 @@ export async function renderRegistrarCourses() {
       <div class="rp-card" style="display:flex; flex-direction:column;">
         <div class="rp-card-head" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:16px;">
           <h3 style="margin:0;">Subject List</h3>
-          <select class="rp-input" data-change="regCourseFilterProg" style="width:auto; min-width:160px; padding:6px 12px;">
-            ${programOptionsHtml(filterProg, { all: true, includeGeneral: true })}
-          </select>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <select class="rp-input" data-change="regCourseFilterProg" style="width:auto; min-width:150px; padding:6px 12px;">
+              ${programOptionsHtml(filterProg, { all: true, includeGeneral: true })}
+            </select>
+            <select class="rp-input" data-change="regCourseFilterDay" style="width:auto; padding:6px 12px;">
+              <option value="all">All Days</option>
+              ${DAYS.map(d => `<option value="${esc(d)}" ${filterDay === d ? 'selected' : ''}>${esc(d)}</option>`).join('')}
+            </select>
+            <select class="rp-input" data-change="regCourseFilterTime" style="width:auto; padding:6px 12px;">
+              <option value="all">All Times</option>
+              ${TIME_SLOTS.map(t => `<option value="${t.value}" ${filterTime === t.value ? 'selected' : ''}>${esc(t.label)}</option>`).join('')}
+            </select>
+          </div>
         </div>
         
         <div class="rp-table-wrap" style="max-height: 500px; overflow-y: auto; flex:1;">
@@ -870,7 +905,7 @@ export async function renderRegistrarCourses() {
                     <button class="rp-btn rp-btn-danger rp-btn-sm" data-action="regDeleteCourse" data-id="${c.id}">✕</button>
                   </td>
                 </tr>
-              `}).join('') : '<tr><td colspan="6" class="rp-empty">No subjects found.</td></tr>'}
+              `}).join('') : '<tr><td colspan="6" class="rp-empty">No subjects match these filters.</td></tr>'}
             </tbody>
           </table>
         </div>
@@ -1027,7 +1062,7 @@ export async function regEditCourseModal(courseId) {
             </div>
             <div class="field">
               <label>Offered to <span class="rp-hint">(pick one program, several, or General for all)</span></label>
-              ${programPickerHtml(getCourseProgramIds(c), { id: 'regEditCourseProgs' })}
+              ${programPickerHtml(getCourseProgramIds(c), { id: 'regEditCourseProgs', search: false, tools: false })}
             </div>
             <button type="button" class="rp-btn rp-btn-primary" data-action="regSaveEditedCourse" style="margin-top: 20px; width:100%;">Save Changes</button>
           </form>
@@ -1134,10 +1169,6 @@ export async function renderRegistrarPrereqs() {
         </select>
       </div>
       <button class="rp-btn rp-btn-primary" data-action="regCreatePrereq">Create New Prerequisite Set</button>
-    </div>
-
-    <div class="rp-notice info">
-      <span>Subjects inside a sequence must be taken in order. A student may take the whole sequence in one semester, but no subject may be skipped.</span>
     </div>
 
     <div class="rp-table-wrap">
@@ -1438,8 +1469,15 @@ export async function regProgramModal(programId) {
 export async function renderRegistrarAcademicTerm() {
   const term = getAcademicTerm();
   const presets = (await supa('presets').catch(() => [])).filter(p => !isMetaRow(p));
-  const termPresets = presets.filter(p => String(p.semester) === String(term.semester));
-  const otherPresets = presets.length - termPresets.length;
+  const filterProg = window.regTermFilterProg || 'all';
+  const filterYear = window.regTermFilterYear || 'all';
+
+  const termPresetsAll = presets.filter(p => String(p.semester) === String(term.semester));
+  const termPresets = termPresetsAll.filter(p =>
+    (filterProg === 'all' || presetMatchesProgram(p, filterProg))
+    && (filterYear === 'all' || String(p.year_level) === String(filterYear))
+  );
+  const otherPresets = presets.length - termPresetsAll.length;
 
   return `
     <div class="rp-grid-2">
@@ -1478,9 +1516,18 @@ export async function renderRegistrarAcademicTerm() {
     </div>
 
     <div class="rp-card" style="margin-top:16px;">
-      <div class="rp-card-head">
+      <div class="rp-card-head" style="flex-wrap:wrap; gap:10px;">
         <h3>${esc(term.semester)} Presets</h3>
-        <span class="rp-badge green">${termPresets.length} preset(s)</span>
+        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+          <select class="rp-input" data-change="regTermFilterProg" style="width:auto; min-width:150px; padding:6px 10px;">
+            ${programOptionsHtml(filterProg, { all: true })}
+          </select>
+          <select class="rp-input" data-change="regTermFilterYear" style="width:auto; padding:6px 10px;">
+            <option value="all">All Years</option>
+            ${allYearLevels().map(y => `<option value="${y}" ${String(filterYear) === String(y) ? 'selected' : ''}>${esc(yearLabel(y))}</option>`).join('')}
+          </select>
+          <span class="rp-badge green">${termPresets.length} preset(s)</span>
+        </div>
       </div>
       ${termPresets.length ? `
         <div class="rp-table-wrap">
@@ -1500,7 +1547,9 @@ export async function renderRegistrarAcademicTerm() {
         ${otherPresets ? `<p class="rp-hint" style="margin-top:10px;">${otherPresets} preset(s) belong to another semester and are not offered while this term is active.</p>` : ''}
       ` : `
         <div class="rp-notice info">
-          <span>No presets are registered for ${esc(term.semester)} yet. Create them in <strong>Preset Subjects</strong>.</span>
+          <span>${termPresetsAll.length
+            ? 'No presets match this program and year level.'
+            : `No presets are registered for ${esc(term.semester)} yet. Create them in <strong>Preset Subjects</strong>.`}</span>
         </div>
       `}
     </div>
