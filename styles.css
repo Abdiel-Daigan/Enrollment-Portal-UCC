@@ -332,6 +332,15 @@ a { color: var(--mint-600); text-decoration: none; }
 .rp-btn-danger { background: #fdeceb; color: var(--danger); border-color: #f7cfcd; }
 .rp-btn-danger:hover { background: #fbdcdb; }
 .rp-btn-sm { padding: 6px 11px; font-size: 12.4px; border-radius: 8px; }
+/* A disabled Complete / Accept button must read as unavailable at a glance. */
+.rp-btn:disabled { opacity: .45; cursor: not-allowed; transform: none !important; box-shadow: none; }
+.rp-btn-ghost:disabled:hover { background: transparent; }
+
+/* Accept Student sits on the left of the manage-student window footer, on
+   every tab, with the reason it is unavailable beside it. */
+.rp-modal-foot .rp-accept { margin-right: auto; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-width: 0; }
+.rp-modal-foot .rp-accept .rp-hint { font-size: 11.8px; max-width: 520px; }
+.reg-record-form .rp-card .field { margin-bottom: 12px; }
 
 .rp-empty { text-align: center; padding: 40px 20px; color: var(--muted); font-size: 13.6px; }
 .rp-empty .big { font-size: 32px; display: block; margin-bottom: 8px; opacity: .55; }

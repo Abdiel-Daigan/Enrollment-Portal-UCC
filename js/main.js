@@ -3,7 +3,7 @@ import { supa } from './api.js';
 import { session, loadSession, doLogin, doRegister, doLogout } from './auth.js';
 import { renderStudentDashboard, renderApply, renderPaymentTab, renderScheduleTab, renderRegistrationTab, renderStudentDocumentsTab } from './student.js';
 import { renderAdminDashboard } from './admin.js';
-import { renderAdminUsers, renderAdminRecords, createStaffUser } from './adminmanage.js';
+import { renderAdminUsers, renderStudentAccounts, createStaffUser } from './adminmanage.js';
 import { renderFacultyDashboard, renderFacultyProgress } from './faculty.js';
 import { renderAccountingDashboard, renderAccountingLogs, renderAccountingSettings, renderAccountingStudents, accountingManageStudentModal } from './accounting.js';
 import {
@@ -35,7 +35,7 @@ import {
   getPickedProgramIds
 } from './catalog.js';
 import { docsForType, docsComplete, docsUploaded } from './documents.js';
-import { isAccepted, canAccept } from './status.js';
+import { isAccepted, canAccept, acceptBlockReason } from './status.js';
 import { renderTemplate, preloadTemplates, setActiveNav } from './templates.js';
 
 loadSession();
@@ -63,10 +63,12 @@ export async function renderAll() {
   pageWrap.classList.remove('hidden');
   navbar.classList.remove('hidden');
 
-  if (session.role === 'admin') { renderAdminLayout(); return; }
-  if (session.role === 'faculty') { renderFacultyLayout(); return; }
-  if (session.role === 'accounting') { renderAccountingLayout(); return; }
-  if (session.role === 'registrar') { renderRegistrarLayout(); return; }
+  // Await the layout so renderAll() only resolves once the portal content is
+  // in the DOM (callers refresh a view and then read it right away).
+  if (session.role === 'admin') return renderAdminLayout();
+  if (session.role === 'faculty') return renderFacultyLayout();
+  if (session.role === 'accounting') return renderAccountingLayout();
+  if (session.role === 'registrar') return renderRegistrarLayout();
 
   // --- STUDENT ROUTING & DYNAMIC NAVBAR ---
   pageWrap.className = 'page-wrap'; // Resets layout to student style
@@ -223,7 +225,7 @@ const ADMIN_VIEWS = {
   dashboard: { label: 'Dashboard', sub: 'System-wide overview' },
   students: { label: 'Student Management', sub: 'Registrar records' },
   users: { label: 'Staff Accounts', sub: 'Create Registrar, Accounting and Faculty logins' },
-  records: { label: 'Application Records', sub: 'Every record, with delete' },
+  staccounts: { label: 'Student Accounts', sub: 'Manage and delete student logins' },
   programs: { label: 'Programs', sub: 'Degree programs offered' },
   unitlimits: { label: 'Unit Limits', sub: 'Maximum units per program and year level' },
   academicterm: { label: 'Academic Term', sub: 'Current semester and school year' },
@@ -282,7 +284,7 @@ async function renderAdminLayout() {
   if (view === 'dashboard') content.innerHTML = await renderAdminDashboard();
   else if (view === 'students') content.innerHTML = await renderRegistrarStudents();
   else if (view === 'users') content.innerHTML = await renderAdminUsers();
-  else if (view === 'records') content.innerHTML = await renderAdminRecords();
+  else if (view === 'staccounts') content.innerHTML = await renderStudentAccounts();
   else if (view === 'programs') content.innerHTML = await renderRegistrarPrograms();
   else if (view === 'unitlimits') content.innerHTML = await renderRegistrarUnitLimits();
   else if (view === 'academicterm') content.innerHTML = await renderRegistrarAcademicTerm();
@@ -635,19 +637,13 @@ document.addEventListener('click', async (e) => {
     if (docsComplete(app)) return toast('Your documents are already confirmed.');
     if (!docsUploaded(app)) return toast('Upload every required document before confirming.', 'error');
 
-    // Every uploaded required document is complete; the confirmation is what
-    // lets the Faculty see the student.
-    const docStatus = app.doc_status || {};
-    docsForType(app.doc_type).filter(d => d.required).forEach(d => {
-      if (app.documents && app.documents[d.id]) docStatus[d.id] = 'Complete';
-    });
-
+    // The student confirms the set; the Registrar still reviews each file and
+    // marks it complete before the application can be accepted.
     try {
       await supa('applications', {
         method: 'PATCH',
         match: { user_id: session.userId },
         body: {
-          doc_status: docStatus,
           documents_verified: true,
           // Completed documents no longer enrol anybody: the Registrar accepts
           // the application, which is what makes the student an Enrollee.
@@ -746,6 +742,44 @@ document.addEventListener('click', async (e) => {
     return;
   }
 
+  if (action === 'regToggleDoc') {
+    const userId = Number(btn.dataset.student);
+    const docId = btn.dataset.doc;
+
+    try {
+      const [apps, users] = await Promise.all([
+        supa('applications', { match: { user_id: userId } }).catch(() => []),
+        supa('users', { match: { id: userId } }).catch(() => [])
+      ]);
+      const app = apps[0];
+      if (!app) return toast('This application could not be found.', 'error');
+      if (!(app.documents || {})[docId]) return toast('The student has not uploaded this document yet.', 'error');
+
+      const docStatus = { ...(app.doc_status || {}) };
+      const wasComplete = docStatus[docId] === 'Complete';
+      const docName = (docsForType(app.doc_type).find(d => d.id === docId) || {}).name || 'This document';
+      const body = { doc_status: { ...docStatus, [docId]: wasComplete ? 'Missing' : 'Complete' } };
+
+      // Acceptance only holds while every required document is complete, so
+      // undoing one takes an accepted student back to the applicant stage.
+      if (wasComplete && isAccepted(app)) {
+        const name = (users[0] || {}).name || 'this student';
+        const ok = confirm(`Undo "${docName}"? ${name} is already accepted. Undoing a document revokes the acceptance, and the student has to be accepted again once every document is complete.`);
+        if (!ok) return;
+        body.status = 'Documents Complete';
+      }
+
+      await supa('applications', { method: 'PATCH', match: { user_id: userId }, body });
+      toast(wasComplete ? `${docName} is no longer complete.` : `${docName} marked complete.`);
+      await regManageStudentModal(userId, window.regModalTab || 'documents', session.role === 'admin' ? 'ADMIN COPY' : 'REGISTRAR COPY');
+      renderAll();
+    } catch (err) {
+      console.error(err);
+      toast('Failed to update the document status.', 'error');
+    }
+    return;
+  }
+
   if (action === 'regAcceptStudent') {
     const userId = Number(btn.dataset.id);
     try {
@@ -753,7 +787,7 @@ document.addEventListener('click', async (e) => {
       const app = apps[0];
       if (!app) return toast('This application could not be found.', 'error');
       if (isAccepted(app)) return toast('This student has already been accepted.');
-      if (!canAccept(app)) return toast('Every required document must be uploaded before the student can be accepted.', 'error');
+      if (!canAccept(app)) return toast(acceptBlockReason(app) || 'Every required document must be complete before the student can be accepted.', 'error');
 
       const users = await supa('users', { match: { id: userId } }).catch(() => []);
       const user = users[0] || {};
@@ -768,8 +802,8 @@ document.addEventListener('click', async (e) => {
         await supa('users', { method: 'PATCH', match: { id: userId }, body: { student_id: studentId } });
       }
 
-      toast(`Student accepted as an Enrollee. Student ID ${studentId} issued.`);
-      await regManageStudentModal(userId, 'documents', session.role === 'admin' ? 'ADMIN COPY' : 'REGISTRAR COPY');
+      toast(`Student accepted as ${Number(app.amount_paid || 0) > 0 ? 'Enrolled' : 'Enrollee'}. Student ID ${studentId} issued.`);
+      await regManageStudentModal(userId, window.regModalTab || 'documents', session.role === 'admin' ? 'ADMIN COPY' : 'REGISTRAR COPY');
       renderAll();
     } catch (err) {
       console.error(err);
@@ -829,25 +863,10 @@ document.addEventListener('click', async (e) => {
     return;
   }
 
+  // The Admin opens the same manage-student window as the Registrar, on the
+  // editable Student Record tab.
   if (action === 'adminOpenRecord') {
-    await regManageStudentModal(Number(btn.dataset.id), 'documents', 'ADMIN COPY');
-    return;
-  }
-
-  if (action === 'adminDeleteRecord') {
-    const userId = Number(btn.dataset.id);
-    const name = btn.dataset.name || 'this student';
-    if (!confirm(`Delete the application record of ${name}? Subject and payment records for that student are deleted too.`)) return;
-    try {
-      await supa('student_subjects', { method: 'DELETE', match: { user_id: userId } });
-      await supa('payment_logs', { method: 'DELETE', match: { user_id: userId } });
-      await supa('applications', { method: 'DELETE', match: { user_id: userId } });
-      toast('Application record deleted.');
-      renderAll();
-    } catch (err) {
-      console.error(err);
-      toast('Failed to delete the record.', 'error');
-    }
+    await regManageStudentModal(Number(btn.dataset.id), 'record', 'ADMIN COPY');
     return;
   }
 
@@ -1067,21 +1086,9 @@ document.addEventListener('change', async (e) => {
   else if (key === 'regFilterProg') { window.regFilterProg = e.target.value; renderAll(); }
   else if (key === 'regFilterYear') { window.regFilterYear = e.target.value; renderAll(); }
   else if (key === 'regFilterStatus') { window.regFilterStatus = e.target.value; renderAll(); }
-  else if (key === 'regDocStatus') {
-    const studentId = Number(e.target.dataset.student);
-    const docId = e.target.dataset.doc;
-    const newStatus = e.target.value;
-
-    try {
-      const apps = await supa('applications', { match: { user_id: studentId } });
-      const app = apps[0];
-      const docStatus = app.doc_status || {};
-      docStatus[docId] = newStatus;
-
-      await supa('applications', { method: 'PATCH', match: { user_id: studentId }, body: { doc_status: docStatus } });
-      toast('Document status updated.');
-    } catch (err) { toast('Failed to update document status', 'error'); }
-  }
+  else if (key === 'adminStuFilterProg') { window.adminStuFilterProg = e.target.value; renderAll(); }
+  else if (key === 'adminStuFilterYear') { window.adminStuFilterYear = e.target.value; renderAll(); }
+  else if (key === 'adminStuFilterStatus') { window.adminStuFilterStatus = e.target.value; renderAll(); }
 });
 
 // --- GLOBAL FORMS ---
@@ -1124,6 +1131,78 @@ document.addEventListener('submit', async (e) => {
     const q = document.getElementById('regSearchInput').value;
     window.regSearch = q;
     renderAll();
+    return;
+  }
+
+  if (e.target.id === 'adminStudentSearchForm') {
+    window.adminStudentSearch = document.getElementById('adminStudentSearchInput').value;
+    renderAll();
+    return;
+  }
+
+  // The Registrar and the Admin edit the student's own record from here.
+  if (e.target.id === 'regStudentRecordForm') {
+    const fd = new FormData(e.target);
+    const userId = Number(fd.get('user_id'));
+    const name = String(fd.get('name') || '').trim();
+    const email = String(fd.get('email') || '').trim().toLowerCase();
+
+    if (!name || !email) return toast('Name and email are required.', 'error');
+
+    const asObject = (value) => {
+      if (value && typeof value === 'object') return value;
+      try {
+        const parsed = JSON.parse(value || '{}');
+        return parsed && typeof parsed === 'object' ? parsed : {};
+      } catch (err) { return {}; }
+    };
+
+    try {
+      const [users, apps] = await Promise.all([
+        supa('users', { match: { id: userId } }).catch(() => []),
+        supa('applications', { match: { user_id: userId } }).catch(() => [])
+      ]);
+      if (!users[0]) return toast('This student account could not be found.', 'error');
+
+      const app = apps[0] || {};
+      const personal = asObject(app.personal);
+      const education = asObject(app.education);
+      const program = asObject(app.program);
+      const block = (prefix) => ({
+        school: String(fd.get(prefix + '_school') || '').trim(),
+        year: String(fd.get(prefix + '_year') || '').trim()
+      });
+
+      await supa('users', {
+        method: 'PATCH',
+        match: { id: userId },
+        body: {
+          name,
+          email,
+          student_id: String(fd.get('student_id') || '').trim() || null
+        }
+      });
+
+      if (apps.length) {
+        await supa('applications', {
+          method: 'PATCH',
+          match: { user_id: userId },
+          body: {
+            personal: { ...personal, phone: String(fd.get('phone') || '').trim(), address: String(fd.get('address') || '').trim() },
+            program: { ...program, preferred: fd.get('program'), year_level: fd.get('year_level') },
+            education: { elem: block('elem'), jhs: block('jhs'), shs: block('shs') },
+            is_regular: fd.get('is_regular') !== 'false'
+          }
+        });
+      }
+
+      toast('Student record updated.');
+      await regManageStudentModal(userId, 'record', session.role === 'admin' ? 'ADMIN COPY' : 'REGISTRAR COPY');
+      renderAll();
+    } catch (err) {
+      console.error(err);
+      toast('Failed to save the student record. ' + (err.message || ''), 'error');
+    }
     return;
   }
 

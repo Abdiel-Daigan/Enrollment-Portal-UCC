@@ -33,6 +33,22 @@ export function missingRequiredDocs(app) {
   return requiredDocIds(app && app.doc_type).filter(id => !uploaded[id]);
 }
 
+// The file is on file for this document.
+export const docUploaded = (app, id) => !!(app && app.documents && app.documents[id]);
+
+/* A document is complete only when its file exists AND the Registrar pressed
+   Complete for it. Uploading alone leaves the document waiting for review, so
+   the Registrar decides when an application is ready to be accepted. */
+export const docComplete = (app, id) =>
+  docUploaded(app, id) && ((app && app.doc_status) || {})[id] === 'Complete';
+
+// Every required document is uploaded and marked complete by the Registrar.
+// This is what unlocks the Accept Student button.
+export function requiredDocsComplete(app) {
+  const ids = requiredDocIds(app && app.doc_type);
+  return ids.length > 0 && ids.every(id => docComplete(app, id));
+}
+
 // Every required document has a file. Uploading a file marks it complete right
 // away, so this is also the point where the student may confirm the set.
 export const docsUploaded = (app) =>

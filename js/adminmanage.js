@@ -1,15 +1,21 @@
 /* =========================================================================
-   ADMINMANAGE.JS — Staff accounts and raw application records
+   ADMINMANAGE.JS — Staff and student accounts
    -------------------------------------------------------------------------
    The Admin portal is the only place where staff accounts are created and
-   where whole records can be removed. Student accounts stay self-service.
+   where whole accounts can be removed. Student accounts stay self-service,
+   but the Admin can still review, edit and delete them here.
    ========================================================================= */
 
 import { esc, hash } from './utils.js';
 import { supa } from './api.js';
 import { session } from './auth.js';
 import { applicationStatus, statusTone } from './status.js';
-import { programLabel } from './catalog.js';
+import {
+  programLabel,
+  programOptionsHtml,
+  allYearLevels,
+  yearLabel
+} from './catalog.js';
 
 const STAFF_ROLES = [
   { value: 'registrar', label: 'Registrar' },
@@ -18,16 +24,20 @@ const STAFF_ROLES = [
 ];
 
 const roleLabel = (role) => {
-  const found = STAFF_ROLES.find(r => r.value === role);
+  const clean = String(role || '').trim();
+  const found = STAFF_ROLES.find(r => r.value === clean);
   if (found) return found.label;
-  if (role === 'admin') return 'Admin';
-  if (role === 'student') return 'Student';
-  return role || '—';
+  if (clean === 'admin') return 'Admin';
+  if (clean === 'student') return 'Student';
+  return clean || '—';
 };
 
 export async function renderAdminUsers() {
   const users = await supa('users').catch(() => []);
-  const sorted = users.slice().sort((a, b) => String(a.role).localeCompare(String(b.role)) || String(a.name).localeCompare(String(b.name)));
+  // Students have their own tab, so they never show up among the staff.
+  const staff = users
+    .filter(u => String(u.role || '').trim() !== 'student')
+    .sort((a, b) => String(a.role).localeCompare(String(b.role)) || String(a.name).localeCompare(String(b.name)));
 
   return `
     <div class="rp-grid-2">
@@ -45,25 +55,25 @@ export async function renderAdminUsers() {
           </div>
           <button type="submit" class="rp-btn rp-btn-primary" style="margin-top:6px;">Create Account</button>
         </form>
-        <p class="rp-hint" style="margin-top:12px;">New students register themselves. This form is only for Registrar, Accounting and Faculty staff.</p>
+        <p class="rp-hint" style="margin-top:12px;">New students register themselves and are managed in Student Accounts. This form is only for Registrar, Accounting and Faculty staff.</p>
       </div>
 
       <div class="rp-card">
         <div class="rp-card-head">
-          <h3>Accounts</h3>
-          <span class="rp-badge green">${sorted.length} user(s)</span>
+          <h3>Staff Accounts</h3>
+          <span class="rp-badge green">${staff.length} staff account(s)</span>
         </div>
         <div class="rp-table-wrap">
-          <table class="rp-table">
+          <table class="rp-table" style="min-width:0;">
             <thead><tr><th>Name</th><th>Email</th><th>Role</th><th style="text-align:right">Action</th></tr></thead>
             <tbody>
-              ${sorted.length ? sorted.map(u => {
+              ${staff.length ? staff.map(u => {
                 const isSelf = String(u.id) === String(session && session.userId);
                 return `
                   <tr>
-                    <td><strong>${esc(u.name)}</strong>${u.student_id ? `<div class="rp-hint">${esc(u.student_id)}</div>` : ''}</td>
+                    <td><strong>${esc(u.name)}</strong></td>
                     <td>${esc(u.email)}</td>
-                    <td><span class="rp-badge ${u.role === 'student' ? 'grey' : 'green'}">${esc(roleLabel(u.role))}</span></td>
+                    <td><span class="rp-badge green">${esc(roleLabel(u.role))}</span></td>
                     <td style="text-align:right">
                       ${isSelf
                         ? '<span class="rp-hint">This is you</span>'
@@ -71,7 +81,7 @@ export async function renderAdminUsers() {
                     </td>
                   </tr>
                 `;
-              }).join('') : '<tr><td colspan="4" class="rp-empty">No accounts found.</td></tr>'}
+              }).join('') : '<tr><td colspan="4" class="rp-empty">No staff accounts found.</td></tr>'}
             </tbody>
           </table>
         </div>
@@ -80,46 +90,90 @@ export async function renderAdminUsers() {
   `;
 }
 
-/* Raw application records, including ones the Registrar screens hide (returned
-   or still in progress). This is where the Admin can remove a record outright. */
-export async function renderAdminRecords() {
-  const [apps, users] = await Promise.all([
-    supa('applications').catch(() => []),
-    supa('users').catch(() => [])
+/* Student accounts, searchable and filtered by program, year level and
+   enrollment status. Manage opens the same student window the Registrar uses,
+   and Delete removes the account together with every record it owns. */
+export async function renderStudentAccounts() {
+  const [users, apps] = await Promise.all([
+    supa('users').catch(() => []),
+    supa('applications').catch(() => [])
   ]);
 
-  const rows = apps
-    .map(app => ({ app, user: users.find(u => String(u.id) === String(app.user_id)) || {} }))
-    .filter(r => r.user.name)
-    .sort((a, b) => String(a.user.name).localeCompare(String(b.user.name)));
+  const searchQ = String(window.adminStudentSearch || '').trim().toLowerCase();
+  const filterProg = window.adminStuFilterProg || '';
+  const filterYear = window.adminStuFilterYear || '';
+  const filterStatus = window.adminStuFilterStatus || '';
+
+  const rows = users
+    .filter(u => String(u.role || '').trim() === 'student')
+    .map((u) => {
+      const app = apps.find(a => String(a.user_id) === String(u.id)) || {};
+      let pr = app.program || {};
+      if (typeof pr === 'string') { try { pr = JSON.parse(pr); } catch (e) { pr = {}; } }
+      return { u, app, program: pr };
+    })
+    .filter(({ u, app, program }) => {
+      if (searchQ) {
+        const haystack = `${u.name || ''} ${u.email || ''} ${u.student_id || ''}`.toLowerCase();
+        if (!haystack.includes(searchQ)) return false;
+      }
+      if (filterProg && String(program.preferred) !== String(filterProg)) return false;
+      if (filterYear && String(program.year_level) !== String(filterYear)) return false;
+      if (filterStatus && applicationStatus(app) !== filterStatus) return false;
+      return true;
+    })
+    .sort((a, b) => String(a.u.name).localeCompare(String(b.u.name)));
+
+  const statusOptions = ['In Progress', 'Applicant', 'Documents Complete', 'Enrollee', 'Enrolled', 'Returned'];
 
   return `
-    <div class="rp-notice info" style="margin-bottom:16px;">
-      <span>Every application row in the database, including returned and unfinished ones. Deleting a record removes the application and its subject/payment records for that student.</span>
+    <div class="rp-toolbar" style="gap: 10px; flex-wrap: wrap;">
+      <div class="grow" style="min-width: 200px;">
+        <form id="adminStudentSearchForm" style="display:flex; gap:8px;">
+          <input class="rp-input" type="text" id="adminStudentSearchInput" placeholder="Search name, email or student ID, then press Enter..." value="${esc(window.adminStudentSearch || '')}">
+          <button type="submit" class="rp-btn rp-btn-primary">Search</button>
+        </form>
+      </div>
+      <div style="width: 160px;">
+        <select class="rp-input" data-change="adminStuFilterProg">
+          ${programOptionsHtml(filterProg, { all: true, allValue: '', allLabel: 'All Programs' })}
+        </select>
+      </div>
+      <div style="width: 140px;">
+        <select class="rp-input" data-change="adminStuFilterYear">
+          <option value="">All Years</option>
+          ${allYearLevels().map(y => `<option value="${y}" ${String(filterYear) === String(y) ? 'selected' : ''}>${esc(yearLabel(y))}</option>`).join('')}
+        </select>
+      </div>
+      <div style="width: 180px;">
+        <select class="rp-input" data-change="adminStuFilterStatus">
+          <option value="">All Statuses</option>
+          ${statusOptions.map(s => `<option value="${esc(s)}" ${filterStatus === s ? 'selected' : ''}>${esc(s)}</option>`).join('')}
+        </select>
+      </div>
     </div>
 
     <div class="rp-table-wrap">
       <table class="rp-table">
-        <thead><tr><th>Student</th><th>Program</th><th>Status</th><th>Submitted</th><th>Paid</th><th style="text-align:right">Actions</th></tr></thead>
+        <thead><tr><th>Student</th><th>Student ID</th><th>Email</th><th>Program</th><th>Year</th><th>Status</th><th style="text-align:right">Actions</th></tr></thead>
         <tbody>
-          ${rows.length ? rows.map(({ app, user }) => {
-            let pr = app.program || {};
-            if (typeof pr === 'string') { try { pr = JSON.parse(pr); } catch (e) { pr = {}; } }
+          ${rows.length ? rows.map(({ u, app, program }) => {
             const status = applicationStatus(app);
             return `
               <tr>
-                <td><strong>${esc(user.name)}</strong><div class="rp-hint">${esc(user.email || '')}</div></td>
-                <td>${esc(programLabel(pr.preferred, 'Not set'))}</td>
+                <td><strong>${esc(u.name)}</strong></td>
+                <td>${esc(u.student_id || '—')}</td>
+                <td>${esc(u.email || '')}</td>
+                <td><span class="rp-badge green">${esc(programLabel(program.preferred, 'Not set'))}</span></td>
+                <td>${program.year_level ? esc(yearLabel(program.year_level)) : '—'}</td>
                 <td><span class="rp-badge ${statusTone(status)}">${esc(status)}</span></td>
-                <td>${app.submitted ? 'Yes' : 'No'}</td>
-                <td>₱${Number(app.amount_paid || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 })}</td>
                 <td style="text-align:right; white-space:nowrap;">
-                  <button class="rp-btn rp-btn-primary rp-btn-sm" data-action="adminOpenRecord" data-id="${app.user_id}">Manage</button>
-                  <button class="rp-btn rp-btn-danger rp-btn-sm" data-action="adminDeleteRecord" data-id="${app.user_id}" data-name="${esc(user.name)}">Delete</button>
+                  <button class="rp-btn rp-btn-primary rp-btn-sm" data-action="adminOpenRecord" data-id="${u.id}">Manage</button>
+                  <button class="rp-btn rp-btn-danger rp-btn-sm" data-action="adminDeleteUser" data-id="${u.id}" data-name="${esc(u.name)}">Delete</button>
                 </td>
               </tr>
             `;
-          }).join('') : '<tr><td colspan="6" class="rp-empty">No application records found.</td></tr>'}
+          }).join('') : '<tr><td colspan="7" class="rp-empty">No student accounts match this search.</td></tr>'}
         </tbody>
       </table>
     </div>

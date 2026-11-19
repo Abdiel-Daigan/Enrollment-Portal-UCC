@@ -2,8 +2,8 @@ import { esc, toast, isHistorySubject } from './utils.js';
 import { supa } from './api.js';
 import { decodePrereqSet, hydratePrereqSets } from './prereqs.js';
 import { reportCard } from './report.js';
-import { DOC_TYPES, docsComplete, missingRequiredDocs } from './documents.js';
-import { applicationStatus, statusTone, isEnrolled, isAccepted, canAccept, hasRegistrationForm } from './status.js';
+import { DOC_TYPES, docsComplete, missingRequiredDocs, docUploaded, docComplete, requiredDocsComplete } from './documents.js';
+import { applicationStatus, statusTone, isEnrolled, isAccepted, canAccept, hasRegistrationForm, acceptBlockReason } from './status.js';
 import { registrationFormHtml } from './regform.js';
 import {
   isMetaRow,
@@ -21,6 +21,8 @@ import {
   currentSemester,
   allYearLevels,
   yearLabel,
+  yearLevelsFor,
+  yearOptionsHtml,
   MAX_PROGRAM_YEARS,
   SEMESTERS
 } from './catalog.js';
@@ -204,11 +206,6 @@ export async function renderRegistrarStudents() {
                   <span class="rp-badge ${statusTone(statusLabel)}">${esc(statusLabel)}</span>
                 </td>
                 <td style="text-align:right; white-space:nowrap;">
-                  ${isAccepted(app) ? '' : `
-                    <button class="rp-btn ${canAccept(app) ? 'rp-btn-primary' : 'rp-btn-ghost'} rp-btn-sm"
-                            data-action="regAcceptStudent" data-id="${app.user_id}"
-                            ${canAccept(app) ? '' : 'disabled title="Every required document must be uploaded before the student can be accepted."'}>Accept Student</button>
-                  `}
                   <button class="rp-btn rp-btn-primary rp-btn-sm" data-action="regManageStudent" data-id="${app.user_id}">Manage</button>
                 </td>
               </tr>
@@ -247,11 +244,9 @@ export async function regManageStudentModal(userId, tab, copyLabel = 'REGISTRAR 
 
   const docs = DOC_TYPES[app.doc_type] || [];
   const uploaded = app.documents || {};
-  const docStatus = app.doc_status || {};
   const accepted = isAccepted(app);
   const registrationAllowed = hasRegistrationForm(app);
   const acceptReady = canAccept(app);
-  const missingDocs = missingRequiredDocs(app);
 
   // Asking for the registration tab on a student without a form falls back to
   // the documents tab instead of opening an empty pane.
@@ -262,9 +257,11 @@ export async function regManageStudentModal(userId, tab, copyLabel = 'REGISTRAR 
 
   // ---------- Documents pane ----------
   const docRows = docs.length ? docs.map(d => {
-    const isUploaded = uploaded[d.id];
-    const status = docStatus[d.id] || 'Missing';
+    const hasFile = docUploaded(app, d.id);
+    const complete = docComplete(app, d.id);
 
+    // The Complete button only appears on a document that has a file. Pressing
+    // it again is the Undo that puts the document back to Missing.
     return `
       <tr>
         <td>
@@ -272,47 +269,37 @@ export async function regManageStudentModal(userId, tab, copyLabel = 'REGISTRAR 
           ${d.required ? '<span class="rp-badge red" style="margin-top:4px;">Required</span>' : '<span class="rp-badge grey" style="margin-top:4px;">Follow-up</span>'}
         </td>
         <td data-label="File">
-          ${isUploaded
-            ? `<button class="rp-btn rp-btn-ghost rp-btn-sm" onclick="window.viewDocument('${uploaded[d.id]}')">View File</button>`
+          ${hasFile
+            ? `<button class="rp-btn rp-btn-ghost rp-btn-sm" data-doc-url="${esc(uploaded[d.id])}" onclick="window.viewDocument(this.dataset.docUrl)">View File</button>`
             : `<span class="rp-badge gold">Not Uploaded</span>`}
         </td>
-        <td data-label="Registrar Status">
-          <select class="rp-input" style="padding:4px; font-size:12px; width:120px;" data-change="regDocStatus" data-student="${userId}" data-doc="${d.id}">
-            <option value="Missing" ${status === 'Missing' ? 'selected' : ''}>Missing</option>
-            <option value="Complete" ${status === 'Complete' ? 'selected' : ''}>Complete</option>
-          </select>
+        <td data-label="Complete" style="white-space:nowrap;">
+          <button type="button" class="rp-btn rp-btn-sm ${complete ? 'rp-btn-ghost' : 'rp-btn-primary'}"
+                  data-action="regToggleDoc" data-student="${userId}" data-doc="${d.id}"
+                  ${hasFile ? '' : 'disabled title="The student has not uploaded this document yet."'}
+                  >${complete ? 'Undo' : 'Complete'}</button>
+          ${hasFile && !complete ? '<div class="rp-hint" style="margin-top:4px;">Awaiting your review</div>' : ''}
         </td>
       </tr>
     `;
   }).join('') : '<tr><td colspan="3" class="rp-empty">No document checklist recorded for this application yet.</td></tr>';
 
   const documentsPane = `
-    <p class="rp-hint" style="margin-bottom:12px;">A document becomes complete as soon as the student uploads it. The student then confirms the whole set, and only then does the application reach the Faculty.</p>
+    <p class="rp-hint" style="margin-bottom:12px;">Mark a document complete after you have checked the uploaded file. Undo puts it back to missing. The Accept Student button at the bottom unlocks once every required document is complete, and it locks again if a document is undone.</p>
 
     <div class="rp-table-wrap">
       <table class="rp-table doc-table" style="min-width:0;">
-        <thead><tr><th>Document Name</th><th>File</th><th>Registrar Status</th></tr></thead>
+        <thead><tr><th>Document Name</th><th>File</th><th style="text-align:left;">Complete</th></tr></thead>
         <tbody>${docRows}</tbody>
       </table>
     </div>
 
-    <div style="margin-top: 24px; border-top: 1px solid #eee; padding-top: 20px;">
-      ${accepted ? `
-        <h4 style="margin-bottom: 10px; font-size:14px;">Application Accepted</h4>
-        <div class="rp-notice mint" style="margin-bottom:0;">
-          <span>Status: <strong>${esc(applicationStatus(app))}</strong> · Student ID: <strong>${esc(u.student_id || 'not issued')}</strong>. The Faculty can now assign subjects.</span>
-        </div>
-      ` : `
-        <h4 style="margin-bottom: 10px; font-size:14px;">Accept Student</h4>
-        <p class="rp-hint" style="margin-bottom: 10px;">
-          ${acceptReady
-            ? 'Every required document is on file. Accepting turns the applicant into an Enrollee and issues the student ID number.'
-            : 'The Accept Student button unlocks only when every required document has been uploaded. Uploading no longer enrols a student by itself.'}
-        </p>
-        <button type="button" class="rp-btn rp-btn-primary" data-action="regAcceptStudent" data-id="${userId}" ${acceptReady ? '' : 'disabled'}>Accept Student</button>
-        ${!app.submitted ? '<span class="rp-hint" style="margin-left:10px;">The student has not submitted the application yet.</span>' : ''}
-        ${app.submitted && missingDocs.length ? `<span class="rp-hint" style="margin-left:10px;">${missingDocs.length} required document(s) still missing.</span>` : ''}
-      `}
+    <div class="rp-notice ${accepted ? 'mint' : 'info'}" style="margin-top:16px; margin-bottom:0;">
+      <span>${accepted
+        ? `Accepted as <strong>${esc(applicationStatus(app))}</strong> · Student ID: <strong>${esc(u.student_id || 'not issued')}</strong>. The Faculty can now assign subjects.`
+        : `Status: <strong>${esc(applicationStatus(app))}</strong> · ${esc(acceptReady
+            ? 'Every required document is complete, so the student can be accepted.'
+            : acceptBlockReason(app) || 'Complete every required document first.')}`}</span>
     </div>
 
     ${!app.submitted || app.documents_verified ? '' : `
@@ -421,22 +408,12 @@ export async function regManageStudentModal(userId, tab, copyLabel = 'REGISTRAR 
   `;
 
   // ---------- Student record pane ----------
-  const kv = (label, value) => `
-    <div style="display:flex; justify-content:space-between; gap:16px; padding:7px 0; border-bottom:1px solid #eef7f3;">
-      <span class="rp-hint">${esc(label)}</span>
-      <strong style="font-size:12.8px; text-align:right;">${esc(value === null || value === undefined || value === '' ? '—' : value)}</strong>
-    </div>
-  `;
-
-  const educationValue = (block) => block
-    ? `${block.school || 'School not recorded'} ${block.year ? '(' + block.year + ')' : ''}`.trim()
-    : '';
-
   // Same file access as the Documents tab, so the Student Record shows the
   // uploaded files and not only their status.
   const docStatusRows = docs.length ? docs.map(d => {
-    const status = docStatus[d.id] || 'Missing';
     const file = uploaded[d.id];
+    const complete = docComplete(app, d.id);
+    const status = complete ? 'Complete' : (file ? 'Awaiting review' : 'Missing');
     return `
       <tr>
         <td>${esc(d.name)}</td>
@@ -445,7 +422,7 @@ export async function regManageStudentModal(userId, tab, copyLabel = 'REGISTRAR 
             ? `<button class="rp-btn rp-btn-ghost rp-btn-sm" data-doc-url="${esc(file)}" onclick="window.viewDocument(this.dataset.docUrl)">View File</button>`
             : '<span class="rp-badge gold">Not Uploaded</span>'}
         </td>
-        <td style="text-align:right" data-label="Status"><span class="rp-badge ${status === 'Complete' ? 'green' : 'red'}">${esc(status)}</span></td>
+        <td style="text-align:right" data-label="Status"><span class="rp-badge ${complete ? 'green' : (file ? 'gold' : 'red')}">${esc(status)}</span></td>
       </tr>
     `;
   }).join('') : '<tr><td colspan="3" class="rp-empty">No documents on file.</td></tr>';
@@ -461,44 +438,71 @@ export async function regManageStudentModal(userId, tab, copyLabel = 'REGISTRAR 
     `).join('') : '<div class="rp-hint" style="padding:8px 0;">No payments recorded for this student.</div>';
 
   const recordPane = `
-    <div class="rp-grid-2">
-      <div class="rp-card">
-        <div class="rp-card-head"><h3>Student Information</h3></div>
-        ${kv('Full Name', u.name)}
-        ${kv('Student ID', u.student_id)}
-        ${kv('Email', u.email)}
-        ${kv('Contact Number', personal.phone)}
-        ${kv('Address', personal.address)}
-        ${kv('Role', u.role)}
-      </div>
+    <form id="regStudentRecordForm" class="reg-record-form">
+      <input type="hidden" name="user_id" value="${userId}">
 
       <div class="rp-card">
+        <div class="rp-card-head">
+          <h3>Student Information</h3>
+          <span class="rp-hint">Editable by the Registrar and the Admin</span>
+        </div>
+        <div class="rp-grid-2" style="gap:0 16px;">
+          <div class="field"><label>Full Name</label><input class="rp-input" name="name" value="${esc(u.name || '')}" required></div>
+          <div class="field"><label>Email</label><input class="rp-input" type="email" name="email" value="${esc(u.email || '')}" required></div>
+          <div class="field"><label>Student ID</label><input class="rp-input" name="student_id" value="${esc(u.student_id || '')}" placeholder="e.g. UCC-2026-0001"></div>
+          <div class="field"><label>Contact Number</label><input class="rp-input" name="phone" value="${esc(personal.phone || '')}"></div>
+          <div class="field" style="grid-column:1 / -1;"><label>Address</label><input class="rp-input" name="address" value="${esc(personal.address || '')}"></div>
+        </div>
+      </div>
+
+      <div class="rp-card" style="margin-top:16px;">
         <div class="rp-card-head"><h3>Enrollment</h3></div>
-        ${kv('Program', programLabel(pr.preferred, 'Not set'))}
-        ${kv('Year Level', pr.year_level ? 'Year ' + pr.year_level : '')}
-        ${kv('Status', applicationStatus(app))}
-        ${kv('Documents Confirmed', app.documents_verified ? 'Yes' : 'No')}
-        ${kv('Regularity', app.is_regular === false ? 'Irregular' : 'Regular')}
-        ${kv('Application Type', app.doc_type)}
-        ${kv('Submitted', app.submitted ? 'Yes' : 'No')}
-        ${kv('Returned', app.returned ? 'Yes — ' + (app.registrar_feedback || 'no feedback given') : 'No')}
-        ${kv('Reference No.', app.reference)}
+        <div class="rp-grid-2" style="gap:0 16px;">
+          <div class="field">
+            <label>Program</label>
+            <select class="rp-input" name="program" onchange="window.regRecordProgramYears(this)">
+              ${programOptionsHtml(pr.preferred, { includeGeneral: true })}
+            </select>
+          </div>
+          <div class="field">
+            <label>Year Level</label>
+            <select class="rp-input" name="year_level">
+              ${yearOptionsHtml(pr.year_level, yearLevelsFor(pr.preferred))}
+            </select>
+          </div>
+          <div class="field">
+            <label>Regularity</label>
+            <select class="rp-input" name="is_regular">
+              <option value="true" ${app.is_regular === false ? '' : 'selected'}>Regular</option>
+              <option value="false" ${app.is_regular === false ? 'selected' : ''}>Irregular</option>
+            </select>
+          </div>
+          <div class="field"><label>Status</label><input class="rp-input" value="${esc(applicationStatus(app))}" readonly></div>
+        </div>
+        <p class="rp-hint">Application type: <strong>${esc(app.doc_type || '—')}</strong> · Documents confirmed by the student: <strong>${app.documents_verified ? 'Yes' : 'No'}</strong> · Submitted: <strong>${app.submitted ? 'Yes' : 'No'}</strong> · Reference: <strong>${esc(app.reference || '—')}</strong>${app.returned ? ` · Returned: <strong>${esc(app.registrar_feedback || 'no feedback given')}</strong>` : ''}</p>
       </div>
-    </div>
 
-    <div class="rp-card" style="margin-top:16px;">
-      <div class="rp-card-head"><h3>Educational Background</h3></div>
-      ${kv('Elementary', educationValue(education.elem))}
-      ${kv('Junior High School', educationValue(education.jhs))}
-      ${kv('Senior High School', educationValue(education.shs))}
-    </div>
+      <div class="rp-card" style="margin-top:16px;">
+        <div class="rp-card-head"><h3>Educational Background</h3></div>
+        <div class="rp-grid-2" style="gap:0 16px;">
+          <div class="field"><label>Elementary School</label><input class="rp-input" name="elem_school" value="${esc((education.elem || {}).school || '')}"></div>
+          <div class="field"><label>Elementary Year</label><input class="rp-input" name="elem_year" value="${esc((education.elem || {}).year || '')}"></div>
+          <div class="field"><label>Junior High School</label><input class="rp-input" name="jhs_school" value="${esc((education.jhs || {}).school || '')}"></div>
+          <div class="field"><label>Junior High Year</label><input class="rp-input" name="jhs_year" value="${esc((education.jhs || {}).year || '')}"></div>
+          <div class="field"><label>Senior High School</label><input class="rp-input" name="shs_school" value="${esc((education.shs || {}).school || '')}"></div>
+          <div class="field"><label>Senior High Year</label><input class="rp-input" name="shs_year" value="${esc((education.shs || {}).year || '')}"></div>
+        </div>
+      </div>
+
+      <button type="submit" class="rp-btn rp-btn-primary" style="margin-top:16px;">Save Student Record</button>
+    </form>
 
     <div class="rp-card" style="margin-top:16px;">
       <div class="rp-card-head">
         <h3>Documents</h3>
         <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
           <span class="rp-badge ${app.documents_verified ? 'green' : 'gold'}">${app.documents_verified ? 'Confirmed by the student' : 'Not confirmed yet'}</span>
-          <span class="rp-hint">${docs.filter(d => (docStatus[d.id] || 'Missing') === 'Complete').length}/${docs.length} complete</span>
+          <span class="rp-hint">${docs.filter(d => docComplete(app, d.id)).length}/${docs.length} complete</span>
         </div>
       </div>
       <div class="rp-table-wrap">
@@ -569,6 +573,15 @@ export async function regManageStudentModal(userId, tab, copyLabel = 'REGISTRAR 
           ${registrationAllowed ? `<div class="rp-pane ${activeTab === 'registration' ? 'active' : ''}" data-pane="registration">${registrationPane}</div>` : ''}
         </div>
         <div class="rp-modal-foot">
+          <div class="rp-accept">
+            <button type="button" class="rp-btn ${acceptReady ? 'rp-btn-primary' : 'rp-btn-ghost'} rp-btn-sm"
+                    data-action="regAcceptStudent" data-id="${userId}" ${acceptReady ? '' : 'disabled'}>${accepted ? 'Accepted' : 'Accept Student'}</button>
+            <span class="rp-hint">${accepted
+              ? `Accepted${u.student_id ? ' · Student ID ' + esc(u.student_id) : ''}`
+              : esc(acceptReady
+                ? (subjects.length ? 'Every required document is complete.' : 'Every required document is complete. No subjects are assigned yet — the Faculty adds the load after acceptance.')
+                : (acceptBlockReason(app) || 'Complete every required document first.'))}</span>
+          </div>
           <button type="button" class="rp-btn rp-btn-primary" onclick="document.getElementById('regStudentModal').remove()">Done</button>
         </div>
       </div>
@@ -578,6 +591,17 @@ export async function regManageStudentModal(userId, tab, copyLabel = 'REGISTRAR 
   document.getElementById('regStudentModal')?.remove();
   document.body.insertAdjacentHTML('beforeend', modalHtml);
 }
+
+// The year levels a program offers, kept in step when the program changes in
+// the Student Record form.
+window.regRecordProgramYears = (select) => {
+  const form = select && select.form;
+  if (!form) return;
+  const yearSelect = form.querySelector('[name="year_level"]');
+  if (!yearSelect) return;
+  const current = yearSelect.value;
+  yearSelect.innerHTML = yearOptionsHtml(current, yearLevelsFor(select.value));
+};
 
 window.regStudentModalTab = (tab) => {
   // Never switch to a pane the student does not have (e.g. a registration form

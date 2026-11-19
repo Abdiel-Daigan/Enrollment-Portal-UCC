@@ -349,8 +349,9 @@ window.handleFileUpload = async (event, docId, docName) => {
     const docStatus = app.doc_status || {};
 
     docs[docId] = publicUrl;
-    // Uploading a document is all it takes: the file is complete immediately.
-    docStatus[docId] = 'Complete';
+    // The file is on record, but the Registrar still has to mark it complete.
+    // A replaced file needs reviewing again, so completion is always reset.
+    docStatus[docId] = 'Missing';
 
     await supa('applications', {
       method: 'PATCH',
@@ -424,8 +425,8 @@ export async function renderStudentDocumentsTab(app) {
     <div class="progress-card">
       <h3>Document Tracking</h3>
       <p class="rp-hint" style="margin-bottom: 20px;">
-        A document is complete as soon as you upload it. When every required document is complete,
-        confirm the whole set so the Faculty can assign your subjects.
+        Upload every required document, then confirm the whole set. The Registrar reviews each file and marks it
+        complete before your application can be accepted.
       </p>
 
       <div class="rp-table-wrap">
@@ -434,7 +435,7 @@ export async function renderStudentDocumentsTab(app) {
           <tbody>
             ${docs.map(d => {
               const file = uploaded[d.id];
-              const status = file ? (docStatus[d.id] || 'Complete') : 'Missing';
+              const complete = !!file && docStatus[d.id] === 'Complete';
               return `
                 <tr>
                   <td><strong>${esc(d.name)}</strong></td>
@@ -442,9 +443,9 @@ export async function renderStudentDocumentsTab(app) {
                   <td data-label="Status">
                     ${!file
                       ? `<span class="rp-badge red">Missing</span>`
-                      : status === 'Complete'
+                      : complete
                         ? `<span class="rp-badge green">Complete</span>`
-                        : `<span class="rp-badge gold">Needs Review</span>`}
+                        : `<span class="rp-badge gold">Awaiting review</span>`}
                   </td>
                   <td style="text-align:right" data-label="Action">
                     ${file ? `<button class="rp-btn rp-btn-ghost rp-btn-sm" data-doc-url="${esc(file)}" onclick="window.viewDocument(this.dataset.docUrl)">View File</button>` : ''}
@@ -478,8 +479,8 @@ export async function renderStudentDocumentsTab(app) {
       ` : `
         <div class="rp-card-head"><h3>Confirm All Documents</h3></div>
         <p class="rp-hint">
-          Every required document is complete. Press the button below to confirm them.
-          Confirming is final: the application can no longer be returned. The Registrar then reviews it and accepts you as an Enrollee.
+          Every required document has been uploaded. Press the button below to confirm them.
+          Confirming is final: the application can no longer be returned. The Registrar then marks each document complete and accepts you as an Enrollee.
         </p>
         <button type="button" class="btn btn-primary" style="margin-top:14px;" data-action="confirmDocuments">Confirm All Documents</button>
       `}
