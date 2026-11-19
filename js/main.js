@@ -37,6 +37,7 @@ import {
 import { docsForType, docsComplete, docsUploaded } from './documents.js';
 import { isAccepted, canAccept, acceptBlockReason } from './status.js';
 import { renderTemplate, preloadTemplates, setActiveNav } from './templates.js';
+import { renderUserManual } from './manual.js';
 
 loadSession();
 
@@ -240,14 +241,16 @@ const ADMIN_VIEWS = {
 
 const FACULTY_VIEWS = {
   dashboard: { label: 'Dashboard', sub: 'Student Evaluation' },
-  progress: { label: 'Check Students', sub: 'Assign student subjects' }
+  progress: { label: 'Check Students', sub: 'Assign student subjects' },
+  manual: { label: 'User Manual', sub: 'How to use the Faculty portal' }
 };
 
 const ACCOUNTING_VIEWS = {
   dashboard: { label: 'Dashboard', sub: 'Manage student payments' },
   logs: { label: 'Payment Logs', sub: 'Recorded transactions' },
   students: { label: 'Student Payments', sub: 'Process a payment' },
-  settings: { label: 'Fee Settings', sub: 'Tuition and other fees' }
+  settings: { label: 'Fee Settings', sub: 'Tuition and other fees' },
+  manual: { label: 'User Manual', sub: 'How to use the Accounting portal' }
 };
 
 const REGISTRAR_VIEWS = {
@@ -258,7 +261,8 @@ const REGISTRAR_VIEWS = {
   academicterm: { label: 'Academic Term', sub: 'Current semester and school year' },
   presets: { label: 'Preset Subjects', sub: 'Curriculum presets' },
   prereqs: { label: 'Prerequisite Subjects', sub: 'Required sequences' },
-  courses: { label: 'Manage Subjects', sub: 'Curriculum' }
+  courses: { label: 'Manage Subjects', sub: 'Curriculum' },
+  manual: { label: 'User Manual', sub: 'How to use the Registrar portal' }
 };
 
 async function renderAdminLayout() {
@@ -327,6 +331,7 @@ async function renderFacultyLayout() {
 
   if (view === 'dashboard') content.innerHTML = await renderFacultyDashboard();
   else if (view === 'progress') content.innerHTML = await renderFacultyProgress();
+  else if (view === 'manual') content.innerHTML = renderUserManual('faculty');
 }
 
 window.setFacultyView = (view) => {
@@ -367,6 +372,7 @@ async function renderAccountingLayout() {
   else if (view === 'logs') content.innerHTML = await renderAccountingLogs();
   else if (view === 'students') content.innerHTML = await renderAccountingStudents();
   else if (view === 'settings') content.innerHTML = await renderAccountingSettings();
+  else if (view === 'manual') content.innerHTML = renderUserManual('accounting');
 }
 
 window.setAccountingView = (view) => { window.currentView = view; renderAll(); };
@@ -400,6 +406,7 @@ async function renderRegistrarLayout() {
   else if (view === 'presets') content.innerHTML = await renderRegistrarPresets();
   else if (view === 'prereqs') content.innerHTML = await renderRegistrarPrereqs();
   else if (view === 'courses') content.innerHTML = await renderRegistrarCourses();
+  else if (view === 'manual') content.innerHTML = renderUserManual('registrar');
 }
 
 window.setRegistrarView = (view) => { window.currentView = view; renderAll(); };
