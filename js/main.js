@@ -38,6 +38,7 @@ import { docsForType, docsComplete, docsUploaded } from './documents.js';
 import { isAccepted, canAccept, acceptBlockReason } from './status.js';
 import { renderTemplate, preloadTemplates, setActiveNav } from './templates.js';
 import { renderUserManual } from './manual.js';
+import { hasAcceptedConsent, acceptConsent, openConsentDoc, consentGateHTML } from './consent.js';
 
 loadSession();
 
@@ -48,6 +49,9 @@ await preloadTemplates(['auth', 'student', 'admin', 'faculty', 'accounting', 're
 await loadCatalog();
 
 export async function renderAll() {
+  // A student account stays behind the privacy gate until it is accepted.
+  syncConsentGate();
+
   const authPage = $('#authPage');
   const pageWrap = $('#pageWrap');
   const navbar = $('#navbar');
@@ -219,6 +223,20 @@ window.payCustomAmount = async (total, currentPaid) => {
 // --- LOGIN / REGISTRATION ---
 async function renderAuthPage() {
   $('#authPage').innerHTML = await renderTemplate('auth');
+}
+
+/* Keeps the privacy gate on screen for any student who has not accepted the
+   notice yet. It is re-checked on every render, so leaving the page and
+   coming back shows it again until the student agrees. */
+function syncConsentGate() {
+  const gate = document.getElementById('consentGate');
+  const needsGate = session && session.role === 'student' && !hasAcceptedConsent(session.userId);
+
+  if (!needsGate) {
+    if (gate) gate.remove();
+    return;
+  }
+  if (!gate) document.body.insertAdjacentHTML('beforeend', consentGateHTML());
 }
 
 // --- ADMIN LAYOUT ---
@@ -565,6 +583,22 @@ document.addEventListener('click', async (e) => {
   const btn = e.target.closest('[data-action]');
   if (!btn) return;
   const action = btn.dataset.action;
+
+  if (action === 'openConsent') { openConsentDoc(); return; }
+
+  if (action === 'acceptConsent') {
+    acceptConsent(session && session.userId);
+    document.getElementById('consentGate')?.remove();
+    toast('Thank you. Your agreement has been recorded.');
+    renderAll();
+    return;
+  }
+
+  if (action === 'declineConsent') {
+    document.getElementById('consentGate')?.remove();
+    doLogout(() => { window.currentView = 'dashboard'; renderAll(); });
+    return;
+  }
 
   if (action === 'authTab') {
     const tab = btn.dataset.tab === 'login' ? 'login' : 'register';
@@ -1069,6 +1103,13 @@ document.addEventListener('click', async (e) => {
 
 // --- GLOBAL CHANGE LISTENERS ---
 document.addEventListener('change', async (e) => {
+  // Registration stays locked until the privacy notice is accepted.
+  if (e.target.id === 'termsCheck') {
+    const submit = document.getElementById('registerSubmit');
+    if (submit) submit.disabled = !e.target.checked;
+    return;
+  }
+
   const key = e.target.dataset.change;
   if (!key) return;
 
@@ -1107,7 +1148,14 @@ document.addEventListener('submit', async (e) => {
   e.preventDefault();
 
   if (e.target.id === 'loginForm') { await doLogin(e.target, () => { window.currentView = 'dashboard'; renderAll(); }); return; }
-  if (e.target.id === 'registerForm') { await doRegister(e.target, () => { window.currentView = 'dashboard'; renderAll(); }); return; }
+  if (e.target.id === 'registerForm') {
+    const agreed = document.getElementById('termsCheck');
+    if (!agreed || !agreed.checked) {
+      return toast('Please accept the Data Privacy Notice and Terms of Service to create an account.', 'error');
+    }
+    await doRegister(e.target, () => { window.currentView = 'dashboard'; renderAll(); });
+    return;
+  }
 
   if (e.target.id === 'stepForm') {
     const step = Number(e.target.dataset.step);
@@ -1516,6 +1564,8 @@ document.addEventListener('keydown', (e) => {
 
   if (e.key === 'Escape') {
     e.preventDefault();
+    // The privacy gate must be answered, not dismissed.
+    if (top.dataset.sticky === '1') return;
     top.remove();
     return;
   }
