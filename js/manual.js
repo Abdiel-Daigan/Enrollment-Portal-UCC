@@ -21,7 +21,7 @@ const MANUALS = {
         intro: 'A quick count of the whole College Department, plus the subject load report.',
         steps: [
           '<strong>Total Students</strong> — every student account in the portal.',
-          '<strong>Ready for Subjects</strong> — students whose documents the Registrar has already confirmed.',
+          '<strong>Ready for Subjects</strong> — students the Registrar has already accepted.',
           '<strong>With Subjects Assigned</strong> — students who already have a load this term.',
           '<strong>Subjects Passed on Record</strong> — subject records the Registrar marked as Passed.',
           'Download the <strong>Student Subject Load Report</strong> as a CSV file with the button on that report.'
@@ -29,7 +29,7 @@ const MANUALS = {
       },
       {
         title: 'Check Students — finding a student',
-        intro: 'Only students whose documents the Registrar has confirmed are listed here, because subjects can only be given after confirmation.',
+        intro: 'Only students the Registrar has accepted are listed here, because subjects can only be given after acceptance.',
         steps: [
           'Type a name or student ID in the search box and press <strong>Search</strong> (or Enter).',
           'Narrow the list with the <strong>All Years</strong> and <strong>All Programs</strong> filters.',
@@ -61,7 +61,7 @@ const MANUALS = {
     notes: [
       'Nothing is saved until you press <strong>Confirm Subjects</strong>. Closing the student window or going back to the list discards the pending subjects.',
       'Adding subjects does not collect payment. Send the student to the Accounting Department, or let them pay online from their Payment tab.',
-      'If a student you expect is missing from Check Students, their documents are not all uploaded yet or the Registrar has not confirmed them.'
+      'If a student you expect is missing from Check Students, their documents are not complete yet or the Registrar has not accepted them.'
     ]
   },
 
@@ -70,8 +70,8 @@ const MANUALS = {
     intro: 'The Registrar portal keeps the student records and the curriculum: students, documents, programs, subjects, presets, prerequisites and the academic term.',
     quick: [
       'Open <strong>Student Management</strong> and press <strong>Manage</strong> on a student.',
-      'In the <strong>Documents</strong> tab, open each uploaded file to check it.',
-      'When every required document is uploaded, press <strong>Confirm All Documents</strong>.'
+      'In the <strong>Documents</strong> tab, mark each uploaded document <strong>Complete</strong>.',
+      'When every required document is complete, press <strong>Accept Student</strong> in the footer.'
     ],
     sections: [
       {
@@ -79,20 +79,21 @@ const MANUALS = {
         steps: [
           'Filter the list by <strong>Program</strong>, <strong>Year</strong> and <strong>Status</strong>, and search by name or student ID.',
           '<strong>Manage</strong> opens the student window with four tabs: <strong>Documents</strong>, <strong>Course(s) Taken</strong>, <strong>Student Record</strong> and <strong>Registration Form</strong>.',
-          'The <strong>Registration Form</strong> tab only appears after the documents are confirmed, because the form is issued at confirmation.',
-          'The footer shows the confirmation state and a short note explaining what still blocks it. Press <strong>Done</strong> to close the window.'
+          'The <strong>Registration Form</strong> tab only appears after the student is accepted, because the form is issued at acceptance.',
+          'The footer holds the <strong>Accept Student</strong> button and a short note explaining what still blocks acceptance. Press <strong>Done</strong> to close the window.'
         ]
       },
       {
-        title: 'Documents and confirming a student',
+        title: 'Completing documents and accepting a student',
         steps: [
-          'In the <strong>Documents</strong> tab, every file the student uploaded already shows as <strong>Complete</strong> — uploading is what completes a document.',
-          'Open each file to check it. A file that is wrong or unreadable is handled with <strong>Return Application</strong>, not by marking the document.',
-          '<strong>Confirm All Documents</strong> stays greyed out until every required document is uploaded. The note beside it names what is still missing.',
-          'Press <strong>Confirm All Documents</strong>. A student ID (UCC-YYYY-####) is issued if the student has none, the status becomes <strong>Enrollee</strong>, and the Faculty can now assign subjects.',
-          'Confirming is final: the Return Application option disappears, so the application can no longer be sent back to the student from this window.'
+          'In the <strong>Documents</strong> tab, open each uploaded file to check it.',
+          'Press <strong>Complete</strong> on a document once it is valid. The status is saved right away.',
+          'Pressed by mistake? The same button becomes <strong>Undo</strong>; press it to send the document back to the student. A document with no upload has no button, so it must be uploaded first.',
+          '<strong>Accept Student</strong> stays greyed out until every required document is Complete. The note beside it names the missing documents or the reason it is blocked.',
+          'Press <strong>Accept Student</strong>. The application is accepted, a student ID (UCC-YYYY-####) is issued if the student has none, and the Faculty can now assign subjects.',
+          'Undoing a document after acceptance asks for confirmation. Confirming pulls the student back out of the accepted list (status returns to Documents Complete) so they can be accepted again once the document is settled.'
         ],
-        tip: 'Uploading or replacing a file keeps the document complete. Confirming the whole set is the Registrar\'s single approval step.'
+        tip: 'The student uploads the file. The Registrar only reviews it — uploading a document again resets it to awaiting review.'
       },
       {
         title: 'Student Record — editing the details',
@@ -164,7 +165,7 @@ const MANUALS = {
       }
     ],
     notes: [
-      'Confirmation depends on the documents only. Subjects are assigned by the Faculty after confirmation, so a student can be confirmed with no load yet.',
+      'Acceptance depends on the documents only. Subjects are assigned by the Faculty after acceptance, so a student can be accepted with no load yet.',
       'The portal saves each action as you press it — document statuses, records and presets do not need a separate save at the top of the page.',
       'Deleting a program, preset or subject that students already use can leave records without their labels. Prefer editing over deleting once a term is running.'
     ]
@@ -202,7 +203,7 @@ const MANUALS = {
           'The window shows the <strong>Total Assessment</strong> and the <strong>Current Balance</strong>. The assessment is units × tuition per unit, plus the miscellaneous and registration fees. A student with no subject load has no assessment yet.',
           'Enter the <strong>Amount Received</strong>, choose <strong>Partial Payment</strong> or <strong>Full Payment</strong>, and press <strong>Record Payment</strong>.',
           'The receipt appears in Payment Logs, the balance updates, and the student sees the payment in their own Payment tab.',
-          'Once the Registrar has confirmed the documents, the <strong>Registration Form</strong> tab shows the Accounting copy of their form for checking and printing.'
+          'Once the Registrar has accepted the student, the <strong>Registration Form</strong> tab shows the Accounting copy of their form for checking and printing.'
         ],
         tip: 'A fully paid student shows a green notice instead of the payment form. If the load later changes, the assessment and balance change with it.'
       },

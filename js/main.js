@@ -34,7 +34,8 @@ import {
   refreshProgramPickers,
   getPickedProgramIds
 } from './catalog.js';
-import { isConfirmed, canConfirmDocuments, confirmBlockReason } from './status.js';
+import { docsForType, docsComplete, docsUploaded } from './documents.js';
+import { isAccepted, canAccept, acceptBlockReason } from './status.js';
 import { renderTemplate, preloadTemplates, setActiveNav } from './templates.js';
 import { renderUserManual } from './manual.js';
 
@@ -145,7 +146,7 @@ async function recordStudentPayment(amount, paymentType) {
   await supa('applications', {
     method: 'PATCH',
     match: { user_id: session.userId },
-    body: isConfirmed(app) ? { amount_paid: newPaid, status: 'Enrolled' } : { amount_paid: newPaid }
+    body: isAccepted(app) ? { amount_paid: newPaid, status: 'Enrolled' } : { amount_paid: newPaid }
   });
 
   await supa('payment_logs', {
@@ -635,6 +636,36 @@ document.addEventListener('click', async (e) => {
     window.currentView = 'dashboard'; renderAll(); return;
   }
 
+  if (action === 'confirmDocuments') {
+    const apps = await supa('applications', { match: { user_id: session.userId } }).catch(() => []);
+    const app = apps[0];
+
+    if (!app || !app.submitted) return toast('Submit your application before confirming your documents.', 'error');
+    if (docsComplete(app)) return toast('Your documents are already confirmed.');
+    if (!docsUploaded(app)) return toast('Upload every required document before confirming.', 'error');
+
+    // The student confirms the set; the Registrar still reviews each file and
+    // marks it complete before the application can be accepted.
+    try {
+      await supa('applications', {
+        method: 'PATCH',
+        match: { user_id: session.userId },
+        body: {
+          documents_verified: true,
+          // Completed documents no longer enrol anybody: the Registrar accepts
+          // the application, which is what makes the student an Enrollee.
+          status: 'Documents Complete'
+        }
+      });
+      toast('Documents confirmed. The Registrar will now review and accept your application.');
+      renderAll();
+    } catch (err) {
+      console.error(err);
+      toast('Could not confirm your documents.', 'error');
+    }
+    return;
+  }
+
   if (action === 'facultyManageStudent') {
     window.facultySelectedStudent = Number(btn.dataset.id);
     window.tempStudentSubjects = [];
@@ -718,35 +749,72 @@ document.addEventListener('click', async (e) => {
     return;
   }
 
-  if (action === 'regConfirmDocuments') {
+  if (action === 'regToggleDoc') {
+    const userId = Number(btn.dataset.student);
+    const docId = btn.dataset.doc;
+
+    try {
+      const [apps, users] = await Promise.all([
+        supa('applications', { match: { user_id: userId } }).catch(() => []),
+        supa('users', { match: { id: userId } }).catch(() => [])
+      ]);
+      const app = apps[0];
+      if (!app) return toast('This application could not be found.', 'error');
+      if (!(app.documents || {})[docId]) return toast('The student has not uploaded this document yet.', 'error');
+
+      const docStatus = { ...(app.doc_status || {}) };
+      const wasComplete = docStatus[docId] === 'Complete';
+      const docName = (docsForType(app.doc_type).find(d => d.id === docId) || {}).name || 'This document';
+      const body = { doc_status: { ...docStatus, [docId]: wasComplete ? 'Missing' : 'Complete' } };
+
+      // Acceptance only holds while every required document is complete, so
+      // undoing one takes an accepted student back to the applicant stage.
+      if (wasComplete && isAccepted(app)) {
+        const name = (users[0] || {}).name || 'this student';
+        const ok = confirm(`Undo "${docName}"? ${name} is already accepted. Undoing a document revokes the acceptance, and the student has to be accepted again once every document is complete.`);
+        if (!ok) return;
+        body.status = 'Documents Complete';
+      }
+
+      await supa('applications', { method: 'PATCH', match: { user_id: userId }, body });
+      toast(wasComplete ? `${docName} is no longer complete.` : `${docName} marked complete.`);
+      await regManageStudentModal(userId, window.regModalTab || 'documents', session.role === 'admin' ? 'ADMIN COPY' : 'REGISTRAR COPY');
+      renderAll();
+    } catch (err) {
+      console.error(err);
+      toast('Failed to update the document status.', 'error');
+    }
+    return;
+  }
+
+  if (action === 'regAcceptStudent') {
     const userId = Number(btn.dataset.id);
     try {
       const apps = await supa('applications', { match: { user_id: userId } }).catch(() => []);
       const app = apps[0];
       if (!app) return toast('This application could not be found.', 'error');
-      if (isConfirmed(app)) return toast('These documents are already confirmed.');
-      if (!canConfirmDocuments(app)) return toast(confirmBlockReason(app) || 'Every required document must be uploaded before the set can be confirmed.', 'error');
+      if (isAccepted(app)) return toast('This student has already been accepted.');
+      if (!canAccept(app)) return toast(acceptBlockReason(app) || 'Every required document must be complete before the student can be accepted.', 'error');
 
       const users = await supa('users', { match: { id: userId } }).catch(() => []);
       const user = users[0] || {};
       const studentId = user.student_id || await nextStudentId();
-      const status = Number(app.amount_paid || 0) > 0 ? 'Enrolled' : 'Enrollee';
 
       await supa('applications', {
         method: 'PATCH',
         match: { user_id: userId },
-        body: { documents_verified: true, status }
+        body: { status: Number(app.amount_paid || 0) > 0 ? 'Enrolled' : 'Enrollee' }
       });
       if (!user.student_id) {
         await supa('users', { method: 'PATCH', match: { id: userId }, body: { student_id: studentId } });
       }
 
-      toast(`Documents confirmed. The student is now an ${status} and Faculty can assign subjects. Student ID ${studentId} issued.`);
+      toast(`Student accepted as ${Number(app.amount_paid || 0) > 0 ? 'Enrolled' : 'Enrollee'}. Student ID ${studentId} issued.`);
       await regManageStudentModal(userId, window.regModalTab || 'documents', session.role === 'admin' ? 'ADMIN COPY' : 'REGISTRAR COPY');
       renderAll();
     } catch (err) {
       console.error(err);
-      toast('Failed to confirm the documents.', 'error');
+      toast('Failed to accept the student.', 'error');
     }
     return;
   }
@@ -766,8 +834,8 @@ document.addEventListener('click', async (e) => {
       if (app) {
         const newPaid = Math.max(0, Number(app.amount_paid || 0) - Number(log.amount || 0));
         const body = { amount_paid: newPaid };
-        // Losing the last payment puts a confirmed student back to Enrollee.
-        if (newPaid === 0 && isConfirmed(app)) body.status = 'Enrollee';
+        // Losing the last payment puts an accepted student back to Enrollee.
+        if (newPaid === 0 && isAccepted(app)) body.status = 'Enrollee';
         await supa('applications', { method: 'PATCH', match: { user_id: userId }, body });
       }
 
@@ -1155,9 +1223,6 @@ document.addEventListener('submit', async (e) => {
     const feedback = fd.get('feedback');
 
     try {
-      const current = await supa('applications', { match: { user_id: userId } }).catch(() => []);
-      if (isConfirmed(current[0])) return toast('These documents are confirmed, so the application can no longer be returned.', 'error');
-
       await supa('applications', {
         method: 'PATCH',
         match: { user_id: userId },
@@ -1320,9 +1385,9 @@ document.addEventListener('submit', async (e) => {
       const newPaid = currentPaid + amount;
       const refNo = 'PAY-ACC-' + Date.now().toString().slice(-6);
 
-      // A payment on a confirmed student makes them officially enrolled.
+      // A payment on an accepted student makes them officially enrolled.
       const studentApps = await supa('applications', { match: { user_id: userId } }).catch(() => []);
-      const accepted = isConfirmed(studentApps[0]);
+      const accepted = isAccepted(studentApps[0]);
       await supa('applications', {
         method: 'PATCH',
         match: { user_id: userId },

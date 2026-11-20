@@ -56,12 +56,11 @@ Consequences today:
 
 ### Other duplication
 
-- **Documents** live in one JSON map (`applications.documents` = files). A
-  document is complete as soon as its file exists, so the legacy per-document
-  `applications.doc_status` map is no longer written.
+- **Documents** live in two JSON maps (`applications.documents` = files,
+  `applications.doc_status` = `Missing`/`Complete`) plus a boolean
+  `documents_verified` (the student's "Confirm All").
 - **Enrollment status** is a text column that holds both the derived label and
-  the Registrar's confirmation (`Enrollee` / `Enrolled` / `Documents Complete`).
-  `applications.documents_verified` is the Registrar's "Confirm All Documents".
+  the Registrar's acceptance (`Enrollee` / `Enrolled` / `Documents Complete`).
 - **Amount paid** is cached in `applications.amount_paid` while the real
   transactions are in `payment_logs`.
 - **`student_subjects.status`** and `student_subjects.remarks` are written with
@@ -397,8 +396,8 @@ Each block is independent; do them one at a time and test.
 | `course_programs` | `getCourseProgramIds()`, `saveCoursePrograms()` in `js/catalog.js` |
 | `academic_terms` | `getAcademicTerm()`, `saveAcademicTerm()` in `js/catalog.js` |
 | `prerequisite_sets` / `_subjects` / `_programs` | `js/prereqs.js` |
-| `application_documents` | `js/documents.js`, the registrar/student document tabs, `regConfirmDocuments` in `js/main.js` |
-| `applications.accepted_at` | `js/status.js` (`isConfirmed`, `canConfirmDocuments`) |
+| `application_documents` | `js/documents.js`, the registrar/student document tabs, `regToggleDoc` in `js/main.js` |
+| `applications.accepted_at` | `js/status.js` (`isAccepted`, `canAccept`) |
 | `applications` real columns | application wizard (`js/student.js`), `js/regform.js`, the record form |
 
 When the app no longer reads a source, remove the old one last:
