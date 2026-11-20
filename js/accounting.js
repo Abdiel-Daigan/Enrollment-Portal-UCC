@@ -257,7 +257,7 @@ export async function accountingManageStudentModal(studentId, copyLabel = 'ACCOU
   const paid = Number(app.amount_paid || 0);
   const balance = total - paid;
 
-  // The registration form only exists once the Registrar has accepted the student.
+  // The registration form only exists once the Registrar has confirmed the documents.
   const registrationAllowed = hasRegistrationForm(app);
   const activeTab = window.accModalTab === 'registration' && registrationAllowed ? 'registration' : 'payments';
 
@@ -271,7 +271,7 @@ export async function accountingManageStudentModal(studentId, copyLabel = 'ACCOU
       copyLabel,
       fallbackName: u.name
     })
-    : `<div class="rp-notice info"><span>This student has no registration form yet. The form is issued after the Registrar accepts the application.</span></div>`;
+    : `<div class="rp-notice info"><span>This student has no registration form yet. The form is issued after the Registrar confirms the documents.</span></div>`;
 
   const modalHtml = `
     <div class="rp-modal-backdrop" id="accStudentModal">

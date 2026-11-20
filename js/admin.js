@@ -1,6 +1,6 @@
 import { esc, isHistorySubject } from './utils.js';
 import { supa } from './api.js';
-import { docsComplete } from './documents.js';
+import { docsConfirmed } from './documents.js';
 import { applicationStatus, isEnrolled } from './status.js';
 import { decodePrereqSet } from './prereqs.js';
 import { reportCard } from './report.js';
@@ -19,9 +19,9 @@ export async function renderAdminDashboard() {
   const presets = presetRows.filter(p => !isMetaRow(p));
   const prereqSets = presetRows.map(decodePrereqSet).filter(Boolean);
   const submitted = apps.filter(a => a.submitted && !a.returned);
-  const verified = submitted.filter(docsComplete).length;
+  const verified = submitted.filter(docsConfirmed).length;
   const enrolled = apps.filter(isEnrolled).length;
-  const verifiedStudentIds = new Set(submitted.filter(docsComplete).map(a => String(a.user_id)));
+  const verifiedStudentIds = new Set(submitted.filter(docsConfirmed).map(a => String(a.user_id)));
   const withSubjects = new Set(subjectRows.filter(s => !isHistorySubject(s)).map(s => String(s.user_id)));
   const loadedUnits = subjectRows
     .filter(s => !isHistorySubject(s))
@@ -41,7 +41,7 @@ export async function renderAdminDashboard() {
       p.code,
       ofProgram.length,
       ofProgram.filter(a => a.submitted && !a.returned).length,
-      ofProgram.filter(docsComplete).length,
+      ofProgram.filter(docsConfirmed).length,
       ofProgram.filter(isEnrolled).length
     ];
   });
@@ -61,7 +61,7 @@ export async function renderAdminDashboard() {
       programLabel(pr.preferred, 'Not set'),
       pr.year_level ? 'Year ' + pr.year_level : '-',
       applicationStatus(app),
-      app.doc_type ? (docsComplete(app) ? 'Confirmed' : 'Not confirmed') : 'No checklist',
+      app.doc_type ? (docsConfirmed(app) ? 'Confirmed' : 'Not confirmed') : 'No checklist',
       load.length,
       units,
       Number(app.amount_paid || 0).toFixed(2)

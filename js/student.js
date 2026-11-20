@@ -3,7 +3,7 @@ import { registrationFormHtml } from './regform.js';
 import { supa, uploadFile } from './api.js';
 import { session } from './auth.js';
 import { getSelectablePrograms, programLabel, getAcademicTerm, yearLevelsFor, yearLabel } from './catalog.js';
-import { docsForType, docsComplete, docsUploaded, missingRequiredDocs } from './documents.js';
+import { docsForType, docsConfirmed, docsUploaded, missingRequiredDocs } from './documents.js';
 import { applicationStatus } from './status.js';
 
 // Helper for the timetable
@@ -34,8 +34,8 @@ export async function renderStudentDashboard() {
   }
 
   const statusLabel = app ? applicationStatus(app) : 'In Progress';
-  const confirmed = app ? docsComplete(app) : false;
-  const confirmable = app ? docsUploaded(app) : false;
+  const confirmed = app ? docsConfirmed(app) : false;
+  const uploadedAll = app ? docsUploaded(app) : false;
 
   const steps = [
     { id: 1, label: 'Personal Information', icon: '1' },
@@ -92,23 +92,17 @@ export async function renderStudentDashboard() {
           </div>
           ${!confirmed ? `
             <div class="rp-notice info" style="margin-bottom:0; width: 100%;">
-              ${confirmable ? `
-                <div>
-                  <strong>All documents are complete.</strong>
-                  <div class="rp-hint">Confirm them so the Registrar can review and accept your application. Confirming is final — the Registrar can no longer return the application.</div>
-                  <button type="button" class="btn btn-primary btn-sm" style="margin-top:10px;" data-action="confirmDocuments">Confirm All Documents</button>
-                </div>
-              ` : `
-                <span>Upload your remaining documents in the Documents tab, then confirm them so the Registrar can review your application.</span>
-              `}
+              <span>${uploadedAll
+                ? 'All your documents are uploaded and waiting for the Registrar to confirm them.'
+                : 'Upload your remaining documents in the Documents tab. Once every required document is uploaded, the Registrar can confirm your application.'}</span>
             </div>
           ` : `
             <div class="rp-notice mint" style="margin-bottom:0; width: 100%;">
               <span>${statusLabel === 'Enrolled'
                 ? 'Your documents are confirmed and your fees are paid. You are officially enrolled.'
                 : statusLabel === 'Enrollee'
-                  ? 'The Registrar has accepted your application. Pay your tuition once the Faculty has assigned your subjects to become officially enrolled.'
-                  : 'Your documents are confirmed and now wait for the Registrar to accept your application.'}</span>
+                  ? 'The Registrar confirmed your documents. Pay your tuition once the Faculty has assigned your subjects to become officially enrolled.'
+                  : 'Your documents are confirmed and now wait for the Registrar to review your application.'}</span>
             </div>
           `}
         </div>
@@ -135,18 +129,17 @@ export async function renderApply() {
 
   let html = '';
   if (app.submitted && !app.returned) {
-    const confirmed = docsComplete(app);
-    const confirmable = docsUploaded(app);
+    const confirmed = docsConfirmed(app);
+    const uploadedAll = docsUploaded(app);
     html = `
       <div class="success-wrap">
         <div class="success-check">✓</div>
         <h2>Application Submitted!</h2>
         <p>${confirmed
-          ? 'Your documents are confirmed. The Registrar will now review and accept your application.'
-          : confirmable
-            ? 'All your documents are complete. Confirm them so the Registrar can review your application.'
-            : 'Upload your remaining documents, then confirm them so the Registrar can review your application.'}</p>
-        ${!confirmed && confirmable ? `<button type="button" class="btn btn-primary" style="margin-top:16px;" data-action="confirmDocuments">Confirm All Documents</button>` : ''}
+          ? 'The Registrar confirmed your documents. The Faculty can now assign your subjects.'
+          : uploadedAll
+            ? 'All your documents are uploaded and waiting for the Registrar to confirm them.'
+            : 'Upload your remaining documents in the Documents tab so the Registrar can confirm your application.'}</p>
       </div>
     `;
   } else {
@@ -346,17 +339,15 @@ window.handleFileUpload = async (event, docId, docName) => {
     const existing = await supa('applications', { match: { user_id: user.userId } });
     const app = existing[0] || {};
     const docs = app.documents || {};
-    const docStatus = app.doc_status || {};
 
+    // Uploading completes the document right away, and replacing a file keeps
+    // it complete. The Registrar confirms the whole set in one action.
     docs[docId] = publicUrl;
-    // The file is on record, but the Registrar still has to mark it complete.
-    // A replaced file needs reviewing again, so completion is always reset.
-    docStatus[docId] = 'Missing';
 
     await supa('applications', {
       method: 'PATCH',
       match: { user_id: user.userId },
-      body: { documents: docs, doc_status: docStatus }
+      body: { documents: docs }
     });
 
     toast(`${docName} uploaded successfully.`);
@@ -417,16 +408,15 @@ export async function renderStudentDocumentsTab(app) {
 
   const docs = docsForType(app.doc_type);
   const uploaded = app.documents || {};
-  const docStatus = app.doc_status || {};
   const missing = missingRequiredDocs(app);
-  const confirmed = docsComplete(app);
+  const confirmed = docsConfirmed(app);
 
   return `
     <div class="progress-card">
       <h3>Document Tracking</h3>
       <p class="rp-hint" style="margin-bottom: 20px;">
-        Upload every required document, then confirm the whole set. The Registrar reviews each file and marks it
-        complete before your application can be accepted.
+        Upload every required document. A document is complete as soon as you upload it; the Registrar then
+        confirms the whole set once, which makes you an Enrollee and releases you to the Faculty.
       </p>
 
       <div class="rp-table-wrap">
@@ -435,7 +425,7 @@ export async function renderStudentDocumentsTab(app) {
           <tbody>
             ${docs.map(d => {
               const file = uploaded[d.id];
-              const complete = !!file && docStatus[d.id] === 'Complete';
+              const complete = !!file;
               return `
                 <tr>
                   <td><strong>${esc(d.name)}</strong></td>
@@ -462,14 +452,14 @@ export async function renderStudentDocumentsTab(app) {
       ${confirmed ? `
         <div class="rp-card-head"><h3>Documents Confirmed</h3></div>
         <div class="rp-notice mint" style="margin-bottom:0;">
-          <span>You confirmed these documents. ${applicationStatus(app) === 'Enrolled'
+          <span>The Registrar confirmed these documents. ${applicationStatus(app) === 'Enrolled'
             ? 'Your fees are paid and you are officially enrolled.'
             : applicationStatus(app) === 'Enrollee'
-              ? 'The Registrar accepted your application. Once the Faculty assigns your subjects and you pay your tuition, you are officially enrolled.'
-              : 'They now wait for the Registrar to accept your application.'}</span>
+              ? 'Once the Faculty assigns your subjects and you pay your tuition, you are officially enrolled.'
+              : ''}</span>
         </div>
       ` : missing.length ? `
-        <div class="rp-card-head"><h3>Confirm All Documents</h3></div>
+        <div class="rp-card-head"><h3>Waiting for Confirmation</h3></div>
         <div class="rp-notice info" style="margin-bottom:0;">
           <span>Upload the remaining required document(s) first: ${missing.map(id => {
             const d = docs.find(x => x.id === id);
@@ -477,12 +467,10 @@ export async function renderStudentDocumentsTab(app) {
           }).join(', ')}.</span>
         </div>
       ` : `
-        <div class="rp-card-head"><h3>Confirm All Documents</h3></div>
-        <p class="rp-hint">
-          Every required document has been uploaded. Press the button below to confirm them.
-          Confirming is final: the application can no longer be returned. The Registrar then marks each document complete and accepts you as an Enrollee.
-        </p>
-        <button type="button" class="btn btn-primary" style="margin-top:14px;" data-action="confirmDocuments">Confirm All Documents</button>
+        <div class="rp-card-head"><h3>Waiting for Confirmation</h3></div>
+        <div class="rp-notice info" style="margin-bottom:0;">
+          <span>Every required document is uploaded. The Registrar now checks the set and confirms it; you become an Enrollee once it is confirmed.</span>
+        </div>
       `}
     </div>
   `;

@@ -2,8 +2,8 @@ import { esc, toast, isHistorySubject } from './utils.js';
 import { supa } from './api.js';
 import { decodePrereqSet, hydratePrereqSets } from './prereqs.js';
 import { reportCard } from './report.js';
-import { DOC_TYPES, docsComplete, missingRequiredDocs, docUploaded, docComplete, requiredDocsComplete } from './documents.js';
-import { applicationStatus, statusTone, isEnrolled, isAccepted, canAccept, hasRegistrationForm, acceptBlockReason } from './status.js';
+import { DOC_TYPES, docsConfirmed, docUploaded } from './documents.js';
+import { applicationStatus, statusTone, isEnrolled, isConfirmed, canConfirmDocuments, hasRegistrationForm, confirmBlockReason } from './status.js';
 import { registrationFormHtml } from './regform.js';
 import {
   isMetaRow,
@@ -44,7 +44,7 @@ export async function renderRegistrarDashboard() {
   const prereqSets = presetRows.map(decodePrereqSet).filter(Boolean);
   const submitted = apps.filter(a => a.submitted && !a.returned);
   const enrolled = apps.filter(isEnrolled).length;
-  const docsPending = submitted.filter(a => !docsComplete(a)).length;
+  const docsPending = submitted.filter(a => !docsConfirmed(a)).length;
   const verified = submitted.length - docsPending;
   const collected = logRows.reduce((sum, l) => sum + Number(l.amount || 0), 0);
 
@@ -73,7 +73,7 @@ export async function renderRegistrarDashboard() {
       programLabel(pr.preferred, 'Not set'),
       pr.year_level ? 'Year ' + pr.year_level : '-',
       applicationStatus(app),
-      app.doc_type ? (docsComplete(app) ? 'Confirmed' : 'Not confirmed') : 'No checklist',
+      app.doc_type ? (docsConfirmed(app) ? 'Confirmed' : 'Not confirmed') : 'No checklist',
       load.length,
       Number(app.amount_paid || 0).toFixed(2)
     ];
@@ -179,8 +179,8 @@ export async function renderRegistrarStudents() {
         <select class="rp-input" data-change="regFilterStatus">
           <option value="">All Statuses</option>
           <option value="applicant" ${filterStatus === 'applicant' ? 'selected' : ''}>Applicant (Documents Incomplete)</option>
-          <option value="documents" ${filterStatus === 'documents' ? 'selected' : ''}>Documents Complete (Awaiting Acceptance)</option>
-          <option value="enrollee" ${filterStatus === 'enrollee' ? 'selected' : ''}>Enrollee (Accepted, Unpaid)</option>
+          <option value="documents" ${filterStatus === 'documents' ? 'selected' : ''}>Documents Complete (Awaiting Confirmation)</option>
+          <option value="enrollee" ${filterStatus === 'enrollee' ? 'selected' : ''}>Enrollee (Confirmed, Unpaid)</option>
           <option value="enrolled" ${filterStatus === 'enrolled' ? 'selected' : ''}>Enrolled</option>
         </select>
       </div>
@@ -220,7 +220,7 @@ export async function renderRegistrarStudents() {
 const peso = (n) => Number(n || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 });
 
 export async function regManageStudentModal(userId, tab, copyLabel = 'REGISTRAR COPY') {
-  // The registration form only exists for an accepted student, so the tab is
+  // The registration form only exists for a confirmed student, so the tab is
   // never opened for an applicant.
   const requestedTab = tab === 'registration' ? tab : (tab || 'documents');
   window.regModalTab = requestedTab;
@@ -244,9 +244,9 @@ export async function regManageStudentModal(userId, tab, copyLabel = 'REGISTRAR 
 
   const docs = DOC_TYPES[app.doc_type] || [];
   const uploaded = app.documents || {};
-  const accepted = isAccepted(app);
+  const confirmed = isConfirmed(app);
   const registrationAllowed = hasRegistrationForm(app);
-  const acceptReady = canAccept(app);
+  const confirmReady = canConfirmDocuments(app);
 
   // Asking for the registration tab on a student without a form falls back to
   // the documents tab instead of opening an empty pane.
@@ -256,12 +256,11 @@ export async function regManageStudentModal(userId, tab, copyLabel = 'REGISTRAR 
   }
 
   // ---------- Documents pane ----------
+  // Uploading is what completes a document, so this table only reports what is on
+  // file. One press of Confirm All Documents releases the student to the Faculty.
   const docRows = docs.length ? docs.map(d => {
     const hasFile = docUploaded(app, d.id);
-    const complete = docComplete(app, d.id);
 
-    // The Complete button only appears on a document that has a file. Pressing
-    // it again is the Undo that puts the document back to Missing.
     return `
       <tr>
         <td>
@@ -273,39 +272,44 @@ export async function regManageStudentModal(userId, tab, copyLabel = 'REGISTRAR 
             ? `<button class="rp-btn rp-btn-ghost rp-btn-sm" data-doc-url="${esc(uploaded[d.id])}" onclick="window.viewDocument(this.dataset.docUrl)">View File</button>`
             : `<span class="rp-badge gold">Not Uploaded</span>`}
         </td>
-        <td data-label="Complete" style="white-space:nowrap;">
-          <button type="button" class="rp-btn rp-btn-sm ${complete ? 'rp-btn-ghost' : 'rp-btn-primary'}"
-                  data-action="regToggleDoc" data-student="${userId}" data-doc="${d.id}"
-                  ${hasFile ? '' : 'disabled title="The student has not uploaded this document yet."'}
-                  >${complete ? 'Undo' : 'Complete'}</button>
-          ${hasFile && !complete ? '<div class="rp-hint" style="margin-top:4px;">Awaiting your review</div>' : ''}
+        <td data-label="Status" style="white-space:nowrap;">
+          <span class="rp-badge ${hasFile ? 'green' : 'red'}">${hasFile ? 'Complete' : 'Missing'}</span>
         </td>
       </tr>
     `;
   }).join('') : '<tr><td colspan="3" class="rp-empty">No document checklist recorded for this application yet.</td></tr>';
 
   const documentsPane = `
-    <p class="rp-hint" style="margin-bottom:12px;">Mark a document complete after you have checked the uploaded file. Undo puts it back to missing. The Accept Student button at the bottom unlocks once every required document is complete, and it locks again if a document is undone.</p>
+    <p class="rp-hint" style="margin-bottom:12px;">A document counts as complete as soon as the student uploads it. Open the file to check it, then press <strong>Confirm All Documents</strong> once the whole set is correct.</p>
 
     <div class="rp-table-wrap">
       <table class="rp-table doc-table" style="min-width:0;">
-        <thead><tr><th>Document Name</th><th>File</th><th style="text-align:left;">Complete</th></tr></thead>
+        <thead><tr><th>Document Name</th><th>File</th><th style="text-align:left;">Status</th></tr></thead>
         <tbody>${docRows}</tbody>
       </table>
     </div>
 
-    <div class="rp-notice ${accepted ? 'mint' : 'info'}" style="margin-top:16px; margin-bottom:0;">
-      <span>${accepted
-        ? `Accepted as <strong>${esc(applicationStatus(app))}</strong> · Student ID: <strong>${esc(u.student_id || 'not issued')}</strong>. The Faculty can now assign subjects.`
-        : `Status: <strong>${esc(applicationStatus(app))}</strong> · ${esc(acceptReady
-            ? 'Every required document is complete, so the student can be accepted.'
-            : acceptBlockReason(app) || 'Complete every required document first.')}`}</span>
+    <div class="rp-notice ${confirmed ? 'mint' : 'info'}" style="margin-top:16px; margin-bottom:0;">
+      <span>${confirmed
+        ? `Documents confirmed. Status: <strong>${esc(applicationStatus(app))}</strong> · Student ID: <strong>${esc(u.student_id || 'not issued')}</strong>. The Faculty can now assign subjects.`
+        : `Status: <strong>${esc(applicationStatus(app))}</strong> · ${esc(confirmReady
+            ? 'Every required document is uploaded, so the set can be confirmed.'
+            : confirmBlockReason(app) || 'Every required document must be uploaded first.')}`}</span>
     </div>
 
-    ${!app.submitted || app.documents_verified ? '' : `
+    ${!app.submitted || confirmed ? '' : `
+    <div style="margin-top: 20px; border-top: 1px solid #eee; padding-top: 20px;">
+      <h4 style="margin-bottom: 10px; font-size:14px;">Confirm All Documents</h4>
+      <p class="rp-hint" style="margin-bottom: 10px;">Confirming marks the set complete, issues the student ID and lets the Faculty assign subjects. After confirming, the application can no longer be returned.</p>
+      <button type="button" class="rp-btn ${confirmReady ? 'rp-btn-primary' : 'rp-btn-ghost'}"
+              data-action="regConfirmDocuments" data-id="${userId}" ${confirmReady ? '' : 'disabled'}>Confirm All Documents</button>
+      ${confirmReady ? '' : `<span class="rp-hint" style="margin-left:8px;">${esc(confirmBlockReason(app) || 'Every required document must be uploaded first.')}</span>`}
+    </div>`}
+
+    ${!app.submitted || confirmed ? '' : `
     <div style="margin-top: 20px; border-top: 1px solid #eee; padding-top: 20px;">
       <h4 style="margin-bottom: 10px; font-size:14px;">Return Application?</h4>
-      <p class="rp-hint" style="margin-bottom: 10px;">If a document is invalid or missing, you can return the application to the student with a reason. Once the student confirms the documents this option disappears.</p>
+      <p class="rp-hint" style="margin-bottom: 10px;">If a document is invalid or missing, you can return the application to the student with a reason. Once you confirm the documents this option disappears.</p>
       <form id="regReturnForm" style="display:flex; gap:10px;">
         <input type="hidden" name="user_id" value="${userId}">
         <input class="rp-input" name="feedback" placeholder="Reason for returning (e.g., Blurry PSA image)" required>
@@ -408,24 +412,9 @@ export async function regManageStudentModal(userId, tab, copyLabel = 'REGISTRAR 
   `;
 
   // ---------- Student record pane ----------
-  // Same file access as the Documents tab, so the Student Record shows the
-  // uploaded files and not only their status.
-  const docStatusRows = docs.length ? docs.map(d => {
-    const file = uploaded[d.id];
-    const complete = docComplete(app, d.id);
-    const status = complete ? 'Complete' : (file ? 'Awaiting review' : 'Missing');
-    return `
-      <tr>
-        <td>${esc(d.name)}</td>
-        <td data-label="File">
-          ${file
-            ? `<button class="rp-btn rp-btn-ghost rp-btn-sm" data-doc-url="${esc(file)}" onclick="window.viewDocument(this.dataset.docUrl)">View File</button>`
-            : '<span class="rp-badge gold">Not Uploaded</span>'}
-        </td>
-        <td style="text-align:right" data-label="Status"><span class="rp-badge ${complete ? 'green' : (file ? 'gold' : 'red')}">${esc(status)}</span></td>
-      </tr>
-    `;
-  }).join('') : '<tr><td colspan="3" class="rp-empty">No documents on file.</td></tr>';
+  // The Student Record reuses the Documents tab rows, so the same files can be
+  // opened from either place.
+
 
   const paymentRows = logs.length ? logs
     .slice()
@@ -479,7 +468,7 @@ export async function regManageStudentModal(userId, tab, copyLabel = 'REGISTRAR 
           </div>
           <div class="field"><label>Status</label><input class="rp-input" value="${esc(applicationStatus(app))}" readonly></div>
         </div>
-        <p class="rp-hint">Application type: <strong>${esc(app.doc_type || '—')}</strong> · Documents confirmed by the student: <strong>${app.documents_verified ? 'Yes' : 'No'}</strong> · Submitted: <strong>${app.submitted ? 'Yes' : 'No'}</strong> · Reference: <strong>${esc(app.reference || '—')}</strong>${app.returned ? ` · Returned: <strong>${esc(app.registrar_feedback || 'no feedback given')}</strong>` : ''}</p>
+        <p class="rp-hint">Application type: <strong>${esc(app.doc_type || '—')}</strong> · Documents confirmed by the Registrar: <strong>${app.documents_verified ? 'Yes' : 'No'}</strong> · Submitted: <strong>${app.submitted ? 'Yes' : 'No'}</strong> · Reference: <strong>${esc(app.reference || '—')}</strong>${app.returned ? ` · Returned: <strong>${esc(app.registrar_feedback || 'no feedback given')}</strong>` : ''}</p>
       </div>
 
       <div class="rp-card" style="margin-top:16px;">
@@ -501,14 +490,14 @@ export async function regManageStudentModal(userId, tab, copyLabel = 'REGISTRAR 
       <div class="rp-card-head">
         <h3>Documents</h3>
         <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-          <span class="rp-badge ${app.documents_verified ? 'green' : 'gold'}">${app.documents_verified ? 'Confirmed by the student' : 'Not confirmed yet'}</span>
-          <span class="rp-hint">${docs.filter(d => docComplete(app, d.id)).length}/${docs.length} complete</span>
+          <span class="rp-badge ${confirmed ? 'green' : 'gold'}">${confirmed ? 'Confirmed by the Registrar' : 'Not confirmed yet'}</span>
+          <span class="rp-hint">${docs.filter(d => docUploaded(app, d.id)).length}/${docs.length} uploaded</span>
         </div>
       </div>
       <div class="rp-table-wrap">
         <table class="rp-table" style="min-width:0;">
-          <thead><tr><th>Document</th><th>File</th><th style="text-align:right">Status</th></tr></thead>
-          <tbody>${docStatusRows}</tbody>
+          <thead><tr><th>Document</th><th>File</th><th style="text-align:left">Status</th></tr></thead>
+          <tbody>${docRows}</tbody>
         </table>
       </div>
     </div>
@@ -537,7 +526,7 @@ export async function regManageStudentModal(userId, tab, copyLabel = 'REGISTRAR 
 
   // ---------- Registration form pane ----------
   // The same document the student prints, labelled as the caller's copy. It is
-  // only issued to an accepted student (Enrollee) or an enrolled one.
+  // only issued to a student whose documents the Registrar confirmed.
   const registrationPane = registrationAllowed
     ? registrationFormHtml({
       app,
@@ -547,7 +536,7 @@ export async function regManageStudentModal(userId, tab, copyLabel = 'REGISTRAR 
       copyLabel,
       fallbackName: u.name
     })
-    : `<div class="rp-notice info"><span>This student has no registration form yet. The form is issued after the Registrar accepts the application and the student becomes an Enrollee.</span></div>`;
+    : `<div class="rp-notice info"><span>This student has no registration form yet. The form is issued after the Registrar confirms the documents and the student becomes an Enrollee.</span></div>`;
 
   const modalHtml = `
     <div class="rp-modal-backdrop" id="regStudentModal">
@@ -574,13 +563,9 @@ export async function regManageStudentModal(userId, tab, copyLabel = 'REGISTRAR 
         </div>
         <div class="rp-modal-foot">
           <div class="rp-accept">
-            <button type="button" class="rp-btn ${acceptReady ? 'rp-btn-primary' : 'rp-btn-ghost'} rp-btn-sm"
-                    data-action="regAcceptStudent" data-id="${userId}" ${acceptReady ? '' : 'disabled'}>${accepted ? 'Accepted' : 'Accept Student'}</button>
-            <span class="rp-hint">${accepted
-              ? `Accepted${u.student_id ? ' · Student ID ' + esc(u.student_id) : ''}`
-              : esc(acceptReady
-                ? (subjects.length ? 'Every required document is complete.' : 'Every required document is complete. No subjects are assigned yet — the Faculty adds the load after acceptance.')
-                : (acceptBlockReason(app) || 'Complete every required document first.'))}</span>
+            <span class="rp-hint">${confirmed
+              ? `Documents confirmed${u.student_id ? ' · Student ID ' + esc(u.student_id) : ''} · ${esc(applicationStatus(app))}`
+              : esc(confirmBlockReason(app) || 'Every required document is uploaded — confirm them in the Documents tab.')}</span>
           </div>
           <button type="button" class="rp-btn rp-btn-primary" onclick="document.getElementById('regStudentModal').remove()">Done</button>
         </div>

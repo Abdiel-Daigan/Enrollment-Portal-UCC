@@ -61,7 +61,7 @@ export async function renderFacultyDashboard() {
     <div class="rp-grid-2">
       <div class="rp-card">
         <h3>College Department</h3>
-        <p class="rp-hint" style="margin-top:10px;">Go to <strong>Check Students</strong> to assign subjects. Only students the Registrar has accepted appear here.</p>
+        <p class="rp-hint" style="margin-top:10px;">Go to <strong>Check Students</strong> to assign subjects. Only students whose documents the Registrar has confirmed appear here.</p>
       </div>
       <div class="rp-card">
         <h3>Prerequisite Sequences</h3>
@@ -128,7 +128,7 @@ export async function renderFacultyProgress() {
     const yearMatch = filterYear ? String(pr.year_level) === String(filterYear) : true;
     const progMatch = filterProg ? String(pr.preferred) === String(filterProg) : true;
 
-    // 2. Only students the Registrar has accepted may be given subjects.
+    // 2. Only students whose documents the Registrar confirmed may be given subjects.
     return isVisibleToFaculty(app) && nameMatch && yearMatch && progMatch;
   });
 
@@ -416,7 +416,7 @@ export async function renderFacultyProgress() {
                 </td>
               </tr>
             `;
-          }).join('') : '<tr><td colspan="5" class="rp-empty">No accepted students found.</td></tr>'}
+          }).join('') : '<tr><td colspan="5" class="rp-empty">No confirmed students found.</td></tr>'}
         </tbody>
       </table>
     </div>
