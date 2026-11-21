@@ -2,7 +2,6 @@ import { $, esc, toast, initials, isHistorySubject } from './utils.js';
 import { supa } from './api.js';
 import { session, loadSession, doLogin, doRegister, doLogout } from './auth.js';
 import { renderStudentDashboard, renderApply, renderPaymentTab, renderScheduleTab, renderRegistrationTab, renderStudentDocumentsTab } from './student.js';
-import { renderAdminDashboard } from './admin.js';
 import { renderAdminUsers, renderStudentAccounts, createStaffUser } from './adminmanage.js';
 import { renderFacultyDashboard, renderFacultyProgress } from './faculty.js';
 import { renderAccountingDashboard, renderAccountingLogs, renderAccountingSettings, renderAccountingStudents, accountingManageStudentModal } from './accounting.js';
@@ -241,20 +240,9 @@ function syncConsentGate() {
 
 // --- ADMIN LAYOUT ---
 const ADMIN_VIEWS = {
-  dashboard: { label: 'Dashboard', sub: 'System-wide overview' },
   students: { label: 'Student Management', sub: 'Registrar records' },
-  users: { label: 'Staff Accounts', sub: 'Create Registrar, Accounting and Faculty logins' },
   staccounts: { label: 'Student Accounts', sub: 'Manage and delete student logins' },
-  programs: { label: 'Programs', sub: 'Degree programs offered' },
-  unitlimits: { label: 'Unit Limits', sub: 'Maximum units per program and year level' },
-  academicterm: { label: 'Academic Term', sub: 'Current semester and school year' },
-  courses: { label: 'Subjects', sub: 'Curriculum' },
-  presets: { label: 'Preset Subjects', sub: 'Curriculum' },
-  prereqs: { label: 'Prerequisite Subjects', sub: 'Curriculum' },
-  faculty: { label: 'Student Courses', sub: 'Assign student subjects' },
-  logs: { label: 'Payment Logs', sub: 'Accounting' },
-  payments: { label: 'Student Payments', sub: 'Accounting' },
-  fees: { label: 'Fee Settings', sub: 'Accounting' }
+  users: { label: 'Staff Accounts', sub: 'Create Registrar, Accounting and Faculty logins' }
 };
 
 const FACULTY_VIEWS = {
@@ -289,7 +277,7 @@ async function renderAdminLayout() {
   $('#navbar').classList.add('hidden');
   pageWrap.classList.remove('hidden');
 
-  const view = window.currentView && ADMIN_VIEWS[window.currentView] ? window.currentView : 'dashboard';
+  const view = window.currentView && ADMIN_VIEWS[window.currentView] ? window.currentView : 'students';
   window.currentView = view;
   const meta = ADMIN_VIEWS[view];
 
@@ -303,20 +291,9 @@ async function renderAdminLayout() {
 
   const content = $('#adminContent');
 
-  if (view === 'dashboard') content.innerHTML = await renderAdminDashboard();
-  else if (view === 'students') content.innerHTML = await renderRegistrarStudents();
-  else if (view === 'users') content.innerHTML = await renderAdminUsers();
+  if (view === 'students') content.innerHTML = await renderRegistrarStudents();
   else if (view === 'staccounts') content.innerHTML = await renderStudentAccounts();
-  else if (view === 'programs') content.innerHTML = await renderRegistrarPrograms();
-  else if (view === 'unitlimits') content.innerHTML = await renderRegistrarUnitLimits();
-  else if (view === 'academicterm') content.innerHTML = await renderRegistrarAcademicTerm();
-  else if (view === 'courses') content.innerHTML = await renderRegistrarCourses();
-  else if (view === 'presets') content.innerHTML = await renderRegistrarPresets();
-  else if (view === 'prereqs') content.innerHTML = await renderRegistrarPrereqs();
-  else if (view === 'faculty') content.innerHTML = await renderFacultyProgress();
-  else if (view === 'logs') content.innerHTML = await renderAccountingLogs();
-  else if (view === 'payments') content.innerHTML = await renderAccountingStudents();
-  else if (view === 'fees') content.innerHTML = await renderAccountingSettings();
+  else if (view === 'users') content.innerHTML = await renderAdminUsers();
 }
 
 window.setAdminView = (view) => {
